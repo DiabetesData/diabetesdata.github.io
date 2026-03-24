@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGM Data Viewer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pikaday/css/pikaday.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/min/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+
+
+
+
+</head>
+
+<body>
+
+    <input type="file" id="csvFileInput" accept=".csv" class="hidden-input" />
+    <input type="file" id="insulinFileInput" accept=".csv" class="hidden-input" />
+    <div class="app-shell">
+
+        <input type="text" id="datepicker" class="hidden-input">
+
+        <div class="app-main">
+            <!-- Dropzone element -->
+            <div id="dropzone" class="dropzone-style">
+                <!-- Container for drag and drop text -->
+                <div id="dropzoneText">
+                    Drag and drop files here, or click to select files
+                </div>
+
+            </div>
+            <details id="supportedFormatsInfo" class="data-formats-info">
+                <summary>Supported Data Formats</summary>
+                <div class="data-formats-content">
+                    <div class="data-format-card">
+                        <h4>Dexcom Clarity Export</h4>
+                        <p>Standard Dexcom Clarity CSV exports are supported.</p>
+                        <p>The app uses the glucose timestamp and glucose value columns from the export, and reads device information when present.</p>
+                    </div>
+                    <div class="data-format-card">
+                        <h4>LibreView Export</h4>
+                        <p>Standard LibreView CSV exports are supported.</p>
+                        <p>The app reads device timestamp data and glucose values from the historic glucose and scan glucose fields when those rows are present.</p>
+                    </div>
+                    <div class="data-format-card">
+                        <h4>Multi-Series CSV</h4>
+                        <p>A flexible CSV format is also supported when it includes these required columns:</p>
+                        <p><strong>Required:</strong> <code>series</code>, <code>datetime_local</code>, <code>value</code></p>
+                        <p><strong>Typical series values:</strong> <code>CGM</code> for glucose rows, values containing <code>insulin</code> for insulin rows, <code>meal announcement</code> for meal markers, and <code>event</code> for pump or system events.</p>
+                        <p><strong>Optional columns:</strong> <code>annotation_kind</code>, <code>tooltip_text</code>, <code>annotation_text_clean</code>, <code>annotation_text_raw</code>, <code>meal_type</code>, <code>meal_size_descriptor</code>, <code>event_type</code>.</p>
+                        <p>This format can be used either as a combined glucose plus insulin file or, after a CGM file is loaded, as an insulin-only supplemental file.</p>
+                    </div>
+                    <div class="data-format-card">
+                        <h4>Simple Glucose CSV</h4>
+                        <p>A simple three-column glucose CSV is supported with these columns:</p>
+                        <p><strong>Expected columns:</strong> <code>patient_id</code>, <code>blood_sugar</code>, <code>measurement_time</code></p>
+                        <p>The app uses <code>blood_sugar</code> as the glucose value and <code>measurement_time</code> as the timestamp.</p>
+                    </div>
+                    <div class="data-format-note">
+                        Times should be parseable as regular date-time strings. Files that include glucose values are automatically binned onto the app's analysis timeline for plotting and downstream calculations.
+                    </div>
+                </div>
+            </details>
+            <div class="action-row primary-actions">
+                <label for="detectionMode">Mode:</label>
+                <select id="detectionMode">
+                    <option value="summary" selected>Summary</option>
+                    <option value="meal">Meal Detection</option>
+                    <option value="implausible">Implausible Data Detection</option>
+                    <option value="hypo">Hypoglycemia Run Detection</option>
+                </select>
+                <label for="daysToDisplay">Days:</label>
+                <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="14" value="2" step="1">
+                <label for="dataProcessingMode">Data Scope:</label>
+                <select id="dataProcessingMode">
+                    <option value="visible">Visible Data Only</option>
+                    <option value="whole">Whole Dataset</option>
+                </select>
+                <label for="insulinScaleMode">Insulin Scale:</label>
+                <select id="insulinScaleMode">
+                    <option value="1">0-1 U</option>
+                    <option value="2">0-2 U</option>
+                    <option value="5">0-5 U</option>
+                    <option value="auto_visible">Auto (Visible)</option>
+                    <option value="auto_whole" selected>Auto (Whole Dataset)</option>
+                </select>
+                <div class="nav-group" aria-label="Navigate display window">
+                    <button id="prevDayBtn" type="button" title="Back 1 day">&lt;</button>
+                    <button id="nextDayBtn" type="button" title="Forward 1 day">&gt;</button>
+                    <button id="prevWindowBtn" type="button" title="Back N days">&lt;&lt;</button>
+                    <button id="nextWindowBtn" type="button" title="Forward N days">&gt;&gt;</button>
+                </div>
+            </div>
+
+            <div class="action-row secondary-actions">
+                <button id="openOptimizationDialogBtn">Optimize...</button>
+                <!-- button to search for meals (using meal detecting heuristic)-->
+                <button id="runDetectionBtn">Detect</button>
+                <!-- button to clear auto-detected meals -->
+                <button id="clearDetected">Undetect</button>
+                <button id="clearSelectedPoints">Unselect</button>
+                <button id="downloadSelectedPoints">Download Selection</button>
+                <!-- Hidden file input -->
+                <input type="file" id="uploadSelectedPoints" accept=".csv" class="hidden-input" />
+                <!-- Custom button to upload a set of saved selected points-->
+                <button id="customUploadButton">Upload Selection</button>
+                <button id="addInsulinFileBtn" disabled title="Load a CGM file first — insulin file support coming soon">Add Insulin File</button>
+                <button id="loadExampleCSV">Load example CGM</button>
+                <button id="saveDetectedMeals">Save Detected Meals</button>
+            </div>
+
+            <details id="advancedActions" class="advanced-actions">
+                <summary>Advanced Actions</summary>
+                <div class="advanced-actions-content">
+                    <button id="loadPreviousDetectionsBtn">Load Previous Detections</button>
+                    <button id="viewAverageMealResponse">Avg Meal Response</button>
+                    <button id="viewInsulinRateCorrelation">Insulin vs ROC</button>
+                    <button id="rawCrossCorrelation">Raw Cross Correlation</button>
+                    <button id="normalizedCrossCorrelation">Normalized Cross Correlation</button>
+                </div>
+            </details>
+
+            <!-- Wrapper container to hold both parameter and meal detection controls -->
+            <div id="controls-container">
+                <!-- Parameter controls group -->
+                <div id="parameter-controls" class="parameter-group hidden">
+                    <label for="triggerRate">Trigger Rate (mg/dL/min):</label>
+                    <input type="number" id="triggerRate" value="1.0" step="0.1" min="0">
+
+                    <label for="mustIncrease">Must Increase:</label>
+                    <input type="number" id="mustIncrease" value="30" step="5" min="0">
+
+                    <label for="mealBlockoutMinutes">Meal Blockout Minutes:</label>
+                    <input type="number" id="mealBlockoutMinutes" value="150" step="30" min="0">
+
+                    <label for="numConsecutiveIncrease">Num Consecutive Increase:</label>
+                    <input type="number" id="numConsecutiveIncrease" value="3" step="1" min="1">
+                </div>
+                <!-- hypo parameter controls, start out with hidden class -->
+                <div id="hypo-parameter-controls" class="parameter-group hidden">
+                    <label for="hypoLowThreshold">Hypo Low Threshold:</label>
+                    <input type="number" id="hypoLowThreshold" value="54" step="1" min="0">
+
+                    <label for="hypoHighThreshold">Hypo High Threshold:</label>
+                    <input type="number" id="hypoHighThreshold" value="70" step="1" min="0">
+
+                    <label for="hypoMinGapPoints">Min Gap (data points):</label>
+                    <input type="number" id="hypoMinGapPoints" value="3" step="1" min="1">
+                </div>
+
+                <div id="implausible-parameter-controls" class="parameter-group hidden">
+                    <label for="implausibleLowThreshold">Low Threshold:</label>
+                    <input type="number" id="implausibleLowThreshold" value="50" step="1" min="0">
+
+                    <label for="implausibleEndThreshold">End Threshold:</label>
+                    <input type="number" id="implausibleEndThreshold" value="70" step="1" min="0">
+
+                    <label for="implausibleHighThreshold">Flanking (High) Threshold:</label>
+                    <input type="number" id="implausibleHighThreshold" value="80" step="1" min="0">
+
+                    <label for="implausibleMinConsecutive">Min Consecutive Points:</label>
+                    <input type="number" id="implausibleMinConsecutive" value="3" step="1" min="1">
+
+                    <label for="implausibleFlankingPoints">Flanking Points:</label>
+                    <input type="number" id="implausibleFlankingPoints" value="2" step="1" min="1">
+                </div>
+
+                <!-- New meal matching info group -->
+                <div id="meal-matching-info" class="hidden">
+                    <h4>Meal Matching Info</h4>
+                    <div class="meal-info-row">
+                        <div>True Positives</div>
+                        <div><span id="truePositives" class="meal-info-value">0</span> (<span id="truePositivesPercent"
+                                class="meal-info-value">0%</span>)</div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>False Positives:</div>
+                        <div><span id="falsePositives" class="meal-info-value">0</span> (<span
+                                id="falsePositivesPercent" class="meal-info-value">0%</span>)</div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>Missed Meals:</div>
+                        <div><span id="missedMeals" class="meal-info-value">0</span> (<span id="missedMealsPercent"
+                                class="meal-info-value">0%</span>)</div>
+                    </div>
+                </div>
+
+                <div id="range-stats-info" class="hidden">
+                    <h4 id="rangeStatsTitle">Selected Range</h4>
+                    <div class="meal-info-row">
+                        <div>Window:</div>
+                        <div><span id="rangeWindowLabel" class="meal-info-value">None</span></div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>Insulin Total:</div>
+                        <div><span id="rangeInsulinTotal" class="meal-info-value">0.00</span></div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>CGM Mean:</div>
+                        <div><span id="rangeCgmMean" class="meal-info-value">N/A</span></div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>%TIR (70-180):</div>
+                        <div><span id="rangeTir" class="meal-info-value">N/A</span></div>
+                    </div>
+                    <div class="meal-info-row">
+                        <div>%TBR (&lt;70):</div>
+                        <div><span id="rangeTbr" class="meal-info-value">N/A</span></div>
+                    </div>
+                    <div class="meal-info-row">
+                        <button id="clearRangeSelectionBtn">Clear Range</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div id="optimizationDialogBackdrop" class="hidden"></div>
+            <div id="optimizationDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="optimizationDialogTitle">
+                <div class="optimization-dialog-header">
+                    <h4 id="optimizationDialogTitle">Optimization Settings</h4>
+                    <button id="closeOptimizationDialogBtn" type="button" aria-label="Close optimization settings">Close</button>
+                </div>
+                <div class="optimization-dialog-body">
+                    <button id="btnOptimizationGraphs">Optimization Graphs</button>
+                    <label for="optimizationObjective">Optimization Objective:</label>
+                    <select id="optimizationObjective">
+                        <option value="gold">Gold Standard Score</option>
+                        <option value="target" selected>Target Meals / Day</option>
+                    </select>
+                    <label for="targetMealsPerDay" id="targetMealsPerDayLabel">Target Meals / Day:</label>
+                    <input type="number" id="targetMealsPerDay" value="3" step="1" min="1">
+                    <button id="btnOptimizeParams">Run Optimization</button>
+                    <div id="optimizationSummary">Optimization summary will appear here.</div>
+                    <div id="optimizationProgressContainer" class="hidden">
+                        <progress id="optimizationProgress" value="0" max="100"></progress>
+                        <div id="optimizationProgressText">0% (0/0)</div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!--- add an element to display info about the CGM data --->
+            <div id="cgmDataInfo" class="stack-gap-sm"></div>
+
+        </div>
+
+    </div>
+
+    <div class="glucose-chart-container">
+        <canvas id="glucoseChart" class="chart"></canvas>
+    </div>
+    <section id="tirSection" class="tir-section hidden" aria-labelledby="tirSectionTitle">
+        <div class="tir-section-header">
+            <div>
+                <h3 id="tirSectionTitle">Time In Range</h3>
+                <p id="tirScopeDescription" class="tir-section-subtitle">Summary and day-to-day variability</p>
+            </div>
+            <label class="tir-overlay-toggle" for="showTirOverlay">
+                <input type="checkbox" id="showTirOverlay">
+                Show visible-day variability overlay
+            </label>
+        </div>
+        <div class="tir-summary-card">
+            <div class="tir-card-title-row">
+                <h4 id="tirSummaryTitle">Summary</h4>
+                <span id="tirSummaryMeta" class="tir-card-meta"></span>
+            </div>
+            <div class="tir-chart-container tir-chart-container-summary">
+                <canvas id="tirSummaryChart"></canvas>
+            </div>
+        </div>
+        <div id="tirOverlayPanel" class="tir-summary-card hidden">
+            <div class="tir-card-title-row">
+                <h4>Visible-Day Variability</h4>
+                <span class="tir-card-meta">One line per visible day</span>
+            </div>
+            <div class="tir-chart-container tir-chart-container-overlay">
+                <canvas id="tirOverlayChart"></canvas>
+            </div>
+        </div>
+        <div id="tirDailyCards" class="tir-daily-grid"></div>
+    </section>
+    <div class="glucose-chart-container hidden">
+        <canvas id="filteredGlucoseChart" class="chart"></canvas>
+    </div>
+    <!-- chart for meal detection, when appropriate -->
+    <div class="chart-row">
+        <div class="chart-container">
+            <canvas id="triggerRateGraph" class="chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="mustIncreaseGraph" class="chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="mealBlockoutMinutesGraph" class="chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="numConsecutiveIncreaseGraph" class="chart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/pikaday/pikaday.js"></script>
+    <script src="bundle.js"></script>
+</body>
+
+</html>
