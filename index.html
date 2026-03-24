@@ -3,124 +3,528 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DiabetesData</title>
+    <meta
+      name="description"
+      content="DiabetesData provides web-based diabetes calculators designed for desktop and phone use, with a CGM viewer coming soon."
+    />
+    <title>DiabetesData | Diabetes Calculators</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap"
       rel="stylesheet"
     />
-  </head>
-  <body class="bg-light text-dark">
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-      <div class="container">
-        <a class="navbar-brand" href="#">DiabetesData</a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarSupportedContent">
-          <ul class="navbar-nav ms-auto">
-            <!-- Add more nav links here if needed -->
-            <li class="nav-item">
-              <a class="nav-link" href="#embeddedTools">Embedded Tools</a>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </nav>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --surface-muted: #f8fafc;
+        --text: #17324d;
+        --muted: #5a6f82;
+        --line: #d9e3ec;
+        --brand: #005b96;
+        --brand-dark: #00446f;
+        --status-live-bg: #e9f3fb;
+        --status-live-text: #005b96;
+        --status-soon-bg: #f2f4f7;
+        --status-soon-text: #5c6c7b;
+        --shadow: 0 10px 24px rgba(23, 50, 77, 0.06);
+        --content-width: 1120px;
+        --radius: 14px;
+      }
 
-    <!-- Hero Section -->
-    <section class="py-5 bg-white">
-      <div class="container text-center">
-        <h1 class="display-4 fw-bold">Welcome to DiabetesData</h1>
-        <p class="lead text-muted mt-3">
-          Trusted Tools and Resources for Healthcare Professionals
-        </p>
-      </div>
-    </section>
+      * {
+        box-sizing: border-box;
+      }
 
-    <!-- Content -->
-    <div class="container my-5">
-      <div class="row justify-content-center">
-        <div class="col-lg-8">
-          <div class="card shadow-sm mb-4">
-            <div class="card-body">
-              <h2 class="card-title h4 fw-bold">Public Tools</h2>
-              <p class="card-text">
-                Explore our growing list of calculators and resources designed to support safe and effective diabetes care.
-              </p>
-              <ul class="list-unstyled mb-4">
-                <li class="mb-2">
-                  <a
-                    href="https://diabetesdata.github.io/InsulinCalcWt/"
-                    class="text-decoration-none"
-                  >
-                    <i class="bi bi-arrow-right-circle"></i> InsulinCalc by Weight
-                  </a>
-                </li>
-                <li class="mb-2">
-                  <a
-                    href="https://diabetesdata.github.io/InsulinCalcTF/"
-                    class="text-decoration-none"
-                  >
-                    <i class="bi bi-arrow-right-circle"></i> InsulinCalc for Tube Feeds
-                  </a>
-                </li>
-              </ul>
-              <p class="text-muted small">
-                Disclaimer: These tools are intended for educational purposes and should not replace clinical judgment.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      html {
+        scroll-behavior: smooth;
+      }
 
-    <!-- Embedded Tools Section -->
-    <div class="container my-5" id="embeddedTools">
-      <div class="row justify-content-center">
-        <div class="col-lg-8">
-          <div class="card shadow-sm mb-4">
-            <div class="card-body">
-              <h2 class="card-title h4 fw-bold">Embedded Tools</h2>
-              <p class="card-text">
-                Use the buttons below to switch between embedded tools.
-              </p>
-              <!-- Buttons to flip between tools -->
-              <div class="mb-3">
-                <button class="btn btn-primary me-2" onclick="switchTool('wt')">InsulinCalc by Weight</button>
-                <button class="btn btn-primary" onclick="switchTool('tf')">InsulinCalc for Tube Feeds</button>
-              </div>
-              <div class="border rounded" style="width: 100%; height: 750px; overflow: hidden;">
-                <iframe
-                  id="toolIframe"
-                  src="https://diabetesdata.github.io/InsulinCalcWt/"
-                  title="Embedded Tool"
-                  style="width: 100%; height: 100%; border: 0;"
-                ></iframe>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      body {
+        margin: 0;
+        font-family: "Source Sans 3", sans-serif;
+        color: var(--text);
+        background: linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      }
 
-    <!-- Footer -->
-    <footer class="bg-primary text-white text-center py-3">
-      <div class="container">
-        <small>&copy; 2025 DiabetesData. All rights reserved.</small>
-      </div>
-    </footer>
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-      function switchTool(tool) {
-        const iframe = document.getElementById('toolIframe');
-        if (tool === 'wt') {
-          iframe.src = 'https://diabetesdata.github.io/InsulinCalcWt/';
-        } else {
-          iframe.src = 'https://diabetesdata.github.io/InsulinCalcTF/';
+      .shell {
+        width: min(calc(100% - 2rem), var(--content-width));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        background: #ffffff;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .nav-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: var(--brand-dark);
+      }
+
+      .brand-mark {
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 0.65rem;
+        display: grid;
+        place-items: center;
+        background: var(--brand);
+        color: #ffffff;
+        font-weight: 700;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+
+      .nav-links a:hover,
+      .nav-links a:focus-visible {
+        color: var(--brand-dark);
+      }
+
+      .hero {
+        padding: 2.25rem 0 1.25rem;
+      }
+
+      .hero-panel {
+        padding: 1.85rem;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fbfd 100%);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--brand);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 0.5rem;
+        font-size: clamp(1.9rem, 4vw, 2.8rem);
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+      }
+
+      .hero-copy {
+        margin-top: 0.75rem;
+        max-width: 52rem;
+        font-size: 1.05rem;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      .hero-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+        margin-top: 1.15rem;
+      }
+
+      .summary-item {
+        padding: 0.85rem 1rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .summary-label {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .summary-value {
+        margin-top: 0.35rem;
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .section {
+        padding: 0.75rem 0 1.75rem;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: end;
+        margin-bottom: 0.75rem;
+      }
+
+      .section-header h2 {
+        font-size: 1.8rem;
+        letter-spacing: -0.02em;
+      }
+
+      .section-copy {
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .tool-list {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .tool-row {
+        display: grid;
+        grid-template-columns: minmax(0, 2.2fr) minmax(150px, 0.85fr) minmax(180px, 0.9fr) auto;
+        gap: 1rem;
+        align-items: center;
+        padding: 1rem 1.2rem;
+        border-top: 1px solid var(--line);
+      }
+
+      .tool-row:first-child {
+        border-top: 0;
+      }
+
+      .tool-name {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--brand-dark);
+      }
+
+      .tool-description {
+        margin-top: 0.2rem;
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.45;
+      }
+
+      .tool-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .meta-label {
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .meta-value {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.45rem 0.8rem;
+        border-radius: 999px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        width: fit-content;
+      }
+
+      .status-live {
+        background: var(--status-live-bg);
+        color: var(--status-live-text);
+      }
+
+      .status-soon {
+        background: var(--status-soon-bg);
+        color: var(--status-soon-text);
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 150px;
+        padding: 0.78rem 1rem;
+        border-radius: 10px;
+        border: 1px solid var(--brand);
+        background: var(--brand);
+        color: #ffffff;
+        font-size: 1rem;
+        font-weight: 700;
+        transition: background 160ms ease, border-color 160ms ease;
+      }
+
+      .button:hover,
+      .button:focus-visible {
+        background: var(--brand-dark);
+        border-color: var(--brand-dark);
+      }
+
+      .button-secondary {
+        border-color: var(--line);
+        background: #ffffff;
+        color: var(--muted);
+      }
+
+      .button-secondary:hover,
+      .button-secondary:focus-visible {
+        background: #f8fafc;
+        border-color: #c9d6e2;
+        color: var(--brand-dark);
+      }
+
+      .note-panel {
+        padding: 1rem 1.15rem;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .note-panel h3 {
+        font-size: 1.15rem;
+        margin-bottom: 0.35rem;
+      }
+
+      .note-panel p,
+      .footer-copy {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      footer {
+        padding: 0 0 1.75rem;
+      }
+
+      .footer-shell {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+      }
+
+      @media (max-width: 960px) {
+        .hero-summary,
+        .tool-row {
+          grid-template-columns: 1fr;
+        }
+
+        .section-header,
+        .footer-shell {
+          align-items: start;
+          flex-direction: column;
         }
       }
-    </script>
+
+      @media (max-width: 720px) {
+        .nav-row {
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .nav-links {
+          flex-wrap: wrap;
+          gap: 0.75rem 1rem;
+        }
+
+        .hero-panel {
+          padding: 1.25rem;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .tool-row {
+          padding: 0.95rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="shell nav-row">
+        <a class="brand" href="#top" aria-label="DiabetesData home">
+          <span class="brand-mark">D</span>
+          <span>DiabetesData</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="#calculators">Calculators</a>
+          <a href="#roadmap">Coming Soon</a>
+          <a href="#notice">Important Note</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero shell">
+        <div class="hero-panel">
+          <p class="eyebrow">Clinical Web Tools</p>
+          <h1>Diabetes calculators for web and phone.</h1>
+          <p class="hero-copy">
+            DiabetesData is a focused collection of browser-based diabetes tools.
+            Current resources include calculators for weight-based insulin dosing and
+            tube-feed workflows, with a CGM viewer planned next.
+          </p>
+
+          <div class="hero-summary">
+            <div class="summary-item">
+              <div class="summary-label">Available now</div>
+              <div class="summary-value">2 calculators</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Access</div>
+              <div class="summary-value">Web-based and phone-friendly</div>
+            </div>
+            <div class="summary-item" id="roadmap">
+              <div class="summary-label">Next release</div>
+              <div class="summary-value">CGM viewer</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="calculators">
+        <div class="section-header">
+          <div>
+            <h2>Diabetes calculators</h2>
+            <p class="section-copy">
+              Open any tool directly in your browser. Each calculator is designed to remain usable on mobile devices as well as desktop screens.
+            </p>
+          </div>
+        </div>
+
+        <div class="tool-list" aria-label="Available diabetes tools">
+          <article class="tool-row">
+            <div>
+              <div class="tool-name">InsulinCalc by Weight</div>
+              <p class="tool-description">
+                Weight-based insulin dose estimation.
+              </p>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Format</span>
+              <span class="meta-value">Web calculator</span>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Status</span>
+              <span class="status-pill status-live">Available now</span>
+            </div>
+            <a
+              class="button"
+              href="https://diabetesdata.github.io/InsulinCalcWt/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open calculator
+            </a>
+          </article>
+
+          <article class="tool-row">
+            <div>
+              <div class="tool-name">InsulinCalc for Tube Feeds</div>
+              <p class="tool-description">
+                Insulin dosing support for tube-feeds.
+              </p>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Format</span>
+              <span class="meta-value">Web calculator</span>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Status</span>
+              <span class="status-pill status-live">Available now</span>
+            </div>
+            <a
+              class="button"
+              href="https://diabetesdata.github.io/InsulinCalcTF/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open calculator
+            </a>
+          </article>
+
+          <article class="tool-row">
+            <div>
+              <div class="tool-name">CGM Viewer</div>
+              <p class="tool-description">
+                Continuous glucose monitoring review with event overlays, meal detection, and future support for guided clinician-patient review.
+              </p>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Format</span>
+              <span class="meta-value">Web application</span>
+            </div>
+            <div class="tool-meta">
+              <span class="meta-label">Status</span>
+              <span class="status-pill status-soon">Coming soon</span>
+            </div>
+            <a class="button button-secondary" href="#top">Coming soon</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell" id="notice" aria-label="Clinical use notice">
+        <div class="note-panel">
+          <h3>Important note</h3>
+          <p>
+            These calculators are intended to support education and clinical workflow.
+            They do not replace clinical judgment, institutional guidance, or
+            patient-specific decision-making.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="shell">
+      <div class="footer-shell">
+        <div>
+          <strong>DiabetesData</strong>
+          <p class="footer-copy">
+            Web-based diabetes calculators and related clinical tools.
+          </p>
+          <p class="footer-copy">
+            Independent project developed outside sponsored institutional work.
+          </p>
+        </div>
+        <p class="footer-copy">&copy; 2025-2026 DiabetesData</p>
+      </div>
+    </footer>
   </body>
 </html>
