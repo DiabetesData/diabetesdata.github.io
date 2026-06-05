@@ -76,7 +76,12 @@
                     <option value="hypo">Hypoglycemia Run Detection</option>
                 </select>
                 <label for="daysToDisplay">Days:</label>
-                <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="14" value="2" step="1">
+                <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
+                <label for="mergePrimaryCgmOnLoad">Load Behavior:</label>
+                <label for="mergePrimaryCgmOnLoad" class="tir-overlay-toggle">
+                    <input type="checkbox" id="mergePrimaryCgmOnLoad" checked>
+                    Merge with loaded CGM
+                </label>
                 <label for="dataProcessingMode">Data Scope:</label>
                 <select id="dataProcessingMode">
                     <option value="visible">Visible Data Only</option>
@@ -110,9 +115,12 @@
                 <input type="file" id="uploadSelectedPoints" accept=".csv" class="hidden-input" />
                 <!-- Custom button to upload a set of saved selected points-->
                 <button id="customUploadButton">Upload Selection</button>
-                <button id="addInsulinFileBtn" disabled title="Load a CGM file first — insulin file support coming soon">Add Insulin File</button>
+                <button id="addInsulinFileBtn" disabled title="Load a CGM file first, then add a series CSV with insulin rows.">Add Insulin File</button>
                 <button id="loadExampleCSV">Load example CGM</button>
                 <button id="saveDetectedMeals">Save Detected Meals</button>
+            </div>
+            <div class="action-row supplemental-import-hint">
+                Add Insulin File overlays insulin from a series CSV and also shows meal and event markers from that file when present. Supplemental CGM rows are ignored.
             </div>
 
             <details id="advancedActions" class="advanced-actions">
@@ -145,7 +153,7 @@
                 <!-- hypo parameter controls, start out with hidden class -->
                 <div id="hypo-parameter-controls" class="parameter-group hidden">
                     <label for="hypoLowThreshold">Hypo Low Threshold:</label>
-                    <input type="number" id="hypoLowThreshold" value="54" step="1" min="0">
+                    <input type="number" id="hypoLowThreshold" value="70" step="1" min="0">
 
                     <label for="hypoHighThreshold">Hypo High Threshold:</label>
                     <input type="number" id="hypoHighThreshold" value="70" step="1" min="0">
@@ -265,6 +273,10 @@
                 <input type="checkbox" id="showTirOverlay">
                 Show visible-day variability overlay
             </label>
+            <label class="tir-overlay-toggle" for="expandDailyLineCharts">
+                <input type="checkbox" id="expandDailyLineCharts">
+                Expand daily charts
+            </label>
         </div>
         <div class="tir-summary-card">
             <div class="tir-card-title-row">
@@ -282,6 +294,35 @@
             </div>
             <div class="tir-chart-container tir-chart-container-overlay">
                 <canvas id="tirOverlayChart"></canvas>
+            </div>
+        </div>
+        <div class="tir-daily-line-charts-grid">
+        <div id="hypoDailyPanel" class="tir-summary-card hidden">
+            <div class="tir-card-title-row">
+                <h4>Hypoglycemia Events Per Visible Day</h4>
+                <span id="hypoDailyMeta" class="tir-card-meta"></span>
+            </div>
+            <div class="tir-chart-container tir-chart-container-overlay">
+                <canvas id="hypoDailyChart"></canvas>
+            </div>
+        </div>
+        <div class="tir-summary-card">
+                <div class="tir-card-title-row">
+                    <h4>Average Daily Glucose</h4>
+                    <span class="tir-card-meta">Visible days</span>
+                </div>
+                <div class="tir-chart-container tir-chart-container-overlay">
+                    <canvas id="dailyAvgGlucoseChart"></canvas>
+                </div>
+            </div>
+            <div id="dailyInsulinPanel" class="tir-summary-card hidden">
+                <div class="tir-card-title-row">
+                    <h4>Daily Total Insulin</h4>
+                    <span class="tir-card-meta">Visible days</span>
+                </div>
+                <div class="tir-chart-container tir-chart-container-overlay">
+                    <canvas id="dailyInsulinChart"></canvas>
+                </div>
             </div>
         </div>
         <div id="tirDailyCards" class="tir-daily-grid"></div>
@@ -306,7 +347,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/pikaday/pikaday.js"></script>
-    <script src="bundle.js"></script>
+    <script src="script.js"></script>
 </body>
 
 </html>

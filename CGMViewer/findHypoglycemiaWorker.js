@@ -3,7 +3,7 @@
 self.addEventListener('message', function (e) {
     const {
       cgmData,
-      hypoLowThreshold = 54,    // Sensor values < this indicate hypoglycemia
+      hypoLowThreshold = 70,    // Sensor values < this indicate hypoglycemia
       hypoHighThreshold = 70,   // Sensor values > this are required to end the event
       hypoMinGapPoints = 3      // Number of data points (e.g., 3 for 15 minutes at 5-min intervals)
     } = e.data;
