@@ -7,6 +7,7 @@
     <title>CGM Data Viewer</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pikaday/css/pikaday.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="hypoglycemia-ui.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/min/moment.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
@@ -74,6 +75,7 @@
                     <option value="meal">Meal Detection</option>
                     <option value="implausible">Implausible Data Detection</option>
                     <option value="hypo">Hypoglycemia Run Detection</option>
+                    <option value="hypo-analysis">Hypoglycemia Analysis</option>
                 </select>
                 <label for="daysToDisplay">Days:</label>
                 <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
@@ -117,7 +119,9 @@
                 <button id="customUploadButton">Upload Selection</button>
                 <button id="addInsulinFileBtn" disabled title="Load a CGM file first, then add a series CSV with insulin rows.">Add Insulin File</button>
                 <button id="loadExampleCSV">Load example CGM</button>
+                <button id="loadPumpExampleCSV">Load example CGM + insulin</button>
                 <button id="saveDetectedMeals">Save Detected Meals</button>
+                <a href="anonymize.html" class="button-link">Anonymize Data</a>
             </div>
             <div class="action-row supplemental-import-hint">
                 Add Insulin File overlays insulin from a series CSV and also shows meal and event markers from that file when present. Supplemental CGM rows are ignored.
@@ -260,6 +264,118 @@
 
     </div>
 
+    <section id="hypoglycemiaAnalysisWorkspace" class="hypo-analysis hidden" aria-labelledby="hypoAnalysisTitle">
+        <header class="hypo-analysis__header">
+            <div>
+                <h2 id="hypoAnalysisTitle">Hypoglycemia Analysis</h2>
+                <p>Review confirmed low-glucose events across the full retained dataset.</p>
+            </div>
+            <div class="hypo-analysis__header-actions">
+                <button id="hypoAnalysisDownload" type="button" disabled>Download 0 events CSV</button>
+                <button id="hypoAnalysisRun" type="button" disabled>Run analysis</button>
+            </div>
+        </header>
+        <div class="hypo-analysis__toolbar">
+            <label for="hypoAnalysisSemantics">Insulin data includes
+                <select id="hypoAnalysisSemantics">
+                    <option value="basal_bolus" selected>Basal and bolus</option>
+                    <option value="basal_only">Basal only</option>
+                    <option value="bolus_only">Bolus only</option>
+                </select>
+            </label>
+            <label for="hypoAnalysisScope">Review scope
+                <select id="hypoAnalysisScope">
+                    <option value="eligible">Automated-pump eligible only</option>
+                    <option value="all" selected>All events</option>
+                    <option value="manual">Manual-pause affected</option>
+                </select>
+            </label>
+            <label for="hypoAnalysisSort">Sort events
+                <select id="hypoAnalysisSort">
+                    <option value="onset" selected>Onset</option>
+                    <option value="nadir">Nadir</option>
+                    <option value="duration">Duration</option>
+                </select>
+            </label>
+            <button id="hypoAnalysisSortDirection" type="button" aria-label="Sort ascending; activate to reverse">Ascending</button>
+        </div>
+        <div class="hypo-analysis__status-strip" role="status" aria-live="polite">
+            <div>
+                <div id="hypoAnalysisCounts" class="hypo-analysis__counts">— detected · — eligible · — shown</div>
+                <p id="hypoAnalysisStatus">Load a compatible Series CSV to begin.</p>
+            </div>
+            <span id="hypoAnalysisTiming" class="hypo-analysis__timing"></span>
+        </div>
+        <div id="hypoAnalysisLive" class="hypo-analysis__sr-only" aria-live="polite"></div>
+        <div id="hypoAnalysisResults" class="hypo-analysis__results hidden">
+            <section class="hypo-analysis__event-list" aria-labelledby="hypoAnalysisEventListTitle">
+                <h3 id="hypoAnalysisEventListTitle">Event list</h3>
+                <div class="hypo-analysis__table-scroll">
+                    <table>
+                        <thead>
+                            <tr><th>Onset</th><th>Nadir</th><th>Min</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="hypoAnalysisEventRows"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section id="hypoAnalysisDetail" class="hypo-analysis__detail hidden" aria-labelledby="hypoAnalysisDetailTitle">
+                <div class="hypo-analysis__detail-header">
+                    <div>
+                        <h3 id="hypoAnalysisDetailTitle">Event</h3>
+                        <p id="hypoAnalysisPosition"></p>
+                    </div>
+                    <div class="hypo-analysis__navigation" aria-label="Navigate displayed events">
+                        <button id="hypoAnalysisPrevious" type="button">Previous</button>
+                        <button id="hypoAnalysisNext" type="button">Next</button>
+                    </div>
+                </div>
+                <div id="hypoAnalysisBadges" class="hypo-analysis__badges"></div>
+                <section class="hypo-analysis__timeline" aria-labelledby="hypoAnalysisTimelineTitle">
+                    <div class="hypo-analysis__timeline-header">
+                        <div>
+                            <h4 id="hypoAnalysisTimelineTitle">Event timeline</h4>
+                            <p id="hypoAnalysisTimeBasis"></p>
+                        </div>
+                    </div>
+                    <div class="hypo-analysis__chart-panel hypo-analysis__chart-panel--glucose">
+                        <canvas id="hypoAnalysisGlucoseChart" aria-label="Glucose timeline"></canvas>
+                    </div>
+                    <div class="hypo-analysis__chart-panel hypo-analysis__chart-panel--insulin">
+                        <canvas id="hypoAnalysisInsulinChart" aria-label="Insulin timeline"></canvas>
+                    </div>
+                    <div class="hypo-analysis__chart-legend" aria-label="Timeline legend">
+                        <span><i class="hypo-analysis__legend-band hypo-analysis__legend-band--six-hour"></i>6–3h lookback</span>
+                        <span><i class="hypo-analysis__legend-band hypo-analysis__legend-band--three-hour"></i>3h–onset</span>
+                        <span><i class="hypo-analysis__legend-line hypo-analysis__legend-line--glucose"></i>Glucose</span>
+                        <span><i class="hypo-analysis__legend-line hypo-analysis__legend-line--insulin"></i>Insulin dose</span>
+                        <span><i class="hypo-analysis__legend-zero"></i>Explicit zero</span>
+                        <span><i class="hypo-analysis__legend-missing"></i>Missing insulin</span>
+                    </div>
+                    <div id="hypoAnalysisOffWindow" class="hypo-analysis__off-window hidden"></div>
+                    <details class="hypo-analysis__timeline-details">
+                        <summary>Timeline source observations</summary>
+                        <div id="hypoAnalysisTimelineDetails"></div>
+                    </details>
+                </section>
+                <dl id="hypoAnalysisMetrics" class="hypo-analysis__metrics"></dl>
+                <details class="hypo-analysis__detail-disclosure">
+                    <summary>Data quality</summary>
+                    <div id="hypoAnalysisQuality"></div>
+                </details>
+                <details class="hypo-analysis__detail-disclosure">
+                    <summary>Source and analysis details</summary>
+                    <div id="hypoAnalysisSources"></div>
+                </details>
+            </section>
+        </div>
+        <div id="hypoAnalysisEmptyResults" class="hypo-analysis__empty hidden"></div>
+        <details class="hypo-analysis__definition">
+            <summary>Event definition</summary>
+            <p>Three consecutive present five-minute CGM bins below 70 mg/dL confirm onset. Three consecutive bins at or above 70 confirm recovery. A reading below 54 marks Level 2. Missing bins do not count toward confirmation.</p>
+        </details>
+    </section>
+
     <div class="glucose-chart-container">
         <canvas id="glucoseChart" class="chart"></canvas>
     </div>
@@ -347,6 +463,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/pikaday/pikaday.js"></script>
+    <script src="hypoglycemia-ui.js"></script>
     <script src="bundle.js"></script>
 </body>
 

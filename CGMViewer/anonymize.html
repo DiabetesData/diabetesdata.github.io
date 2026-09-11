@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>Local CGM Data Anonymizer</title>
+    <link rel="stylesheet" href="anonymize.css">
+</head>
+<body>
+    <header class="page-header">
+        <div>
+            <a href="index.html" class="back-link">← Back to CGM Viewer</a>
+            <h1>Local CGM Data Anonymizer</h1>
+            <p>Shift dates and remove identifying or unsafe fields while preserving five-minute CGM and insulin alignment.</p>
+        </div>
+        <div class="local-badge">Browser only · No upload</div>
+    </header>
+
+    <main>
+        <section class="privacy-callout" aria-labelledby="privacyTitle">
+            <h2 id="privacyTitle">Your selected files stay on this device</h2>
+            <p>This page has no server connection. It reads files locally and creates downloads in your browser. De-identification lowers disclosure risk but cannot guarantee anonymity of a distinctive glucose or insulin trace.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="sourceTitle">
+            <div class="step-heading">
+                <span>1</span>
+                <div>
+                    <h2 id="sourceTitle">Select related CSV files</h2>
+                    <p>Select CGM and insulin files together so every timestamp receives the same date shift.</p>
+                </div>
+            </div>
+            <label class="file-picker" for="sourceFiles">
+                <strong>Choose CSV files</strong>
+                <span>Custom series CSV exports are recognized. Multiple files are supported.</span>
+                <input id="sourceFiles" type="file" accept=".csv,text/csv" multiple>
+            </label>
+        </section>
+
+        <section class="panel" aria-labelledby="optionsTitle">
+            <div class="step-heading">
+                <span>2</span>
+                <div>
+                    <h2 id="optionsTitle">Choose output settings</h2>
+                    <p>The generated date will preserve the weekday of the earliest source date.</p>
+                </div>
+            </div>
+            <div class="settings-grid">
+                <label>
+                    Anonymization profile
+                    <select id="profile">
+                        <option value="share-safe" selected>Share-safe</option>
+                        <option value="date-shift-only">Date shift only (private use)</option>
+                    </select>
+                    <small id="profileExplanation"></small>
+                </label>
+                <label>
+                    Output pseudonym
+                    <input id="pseudonym" type="text" value="subject" maxlength="50" autocomplete="off">
+                    <small>Used only in generated filenames.</small>
+                </label>
+                <label>
+                    Synthetic earliest date
+                    <div class="date-control">
+                        <input id="syntheticStartDate" type="date">
+                        <button id="generateDate" type="button" disabled>Generate</button>
+                    </div>
+                    <small>Must have the same weekday as the earliest source date.</small>
+                </label>
+            </div>
+        </section>
+
+        <section class="panel" aria-labelledby="previewTitle">
+            <div class="step-heading">
+                <span>3</span>
+                <div>
+                    <h2 id="previewTitle">Review and create files</h2>
+                    <p>Review repeated rows and conflicting measurements before and after anonymization. Malformed timestamps prevent export; unknown columns are omitted in Share-safe mode.</p>
+                </div>
+            </div>
+            <div id="statusPanel" class="status-panel status-working" aria-live="polite">Waiting for files.</div>
+            <div id="inspectionPanel" class="empty-state">Select one or more related CSV files to inspect them.</div>
+            <button id="transformFiles" class="primary-button" type="button" disabled>Create anonymized files</button>
+        </section>
+
+        <section class="panel" aria-labelledby="downloadsTitle">
+            <div id="resultsPanel" class="empty-state">
+                <h2 id="downloadsTitle" class="visually-hidden">Downloads</h2>
+                Anonymized downloads will appear here after transformation.
+            </div>
+        </section>
+
+        <details class="policy-details">
+            <summary>Share-safe custom series CSV policy</summary>
+            <ul>
+                <li>Preserves CGM and insulin values, including explicit zero-delivery rows.</li>
+                <li>Shifts and regenerates all structured date and time columns from <code>datetime_local</code>.</li>
+                <li>Removes raw annotation text and reconstructs approved meal and pump-event labels.</li>
+                <li>Normalizes trace identifiers and removes unknown columns.</li>
+                <li>Preserves missing rows and does not fill gaps or change five-minute measurements.</li>
+                <li>Reports identical rows, repeated measurements, and conflicting measurements in the source and output, with corresponding file/row numbers. Findings do not trigger automatic deduplication.</li>
+            </ul>
+        </details>
+    </main>
+
+    <script src="anonymize.js" defer></script>
+</body>
+</html>

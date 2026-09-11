@@ -1,0 +1,8 @@
+chartIndex,date_raw,date_iso,series,time_raw,time_iso,datetime_local,value,annotation_kind,annotation_text_raw,annotation_text_clean,tooltip_text,meal_type,meal_code,meal_size_descriptor,meal_time_text,event_type,event_time_text,source_trace_index,source_trace_name,patient_name
+1,"Mon, Jan 1",2024-01-01,CGM,0,00:00,2024-01-01 00:00,112,,,,,,,,,,,1,CGM,Example Person
+1,"Mon, Jan 1",2024-01-01,CGM,5,00:05,2024-01-01 00:05,108,,,,,,,,,,,1,CGM,Example Person
+1,"Mon, Jan 1",2024-01-01,Insulin,0,00:00,2024-01-01 00:00,0.125,,,,,,,,,,,4,Insulin,Example Person
+1,"Mon, Jan 1",2024-01-01,Insulin,5,00:05,2024-01-01 00:05,0,,,,,,,,,,,4,Insulin,Example Person
+2,"Tue, Jan 2",2024-01-02,Meal Announcement,1035,17:15,2024-01-02 17:15,0,Meal,"Dinner, Usual, 5:18 PM","Dinner, Usual, 5:18 PM","Dinner, Usual, 5:18 PM",Dinner,D,Usual,5:18 PM,,,2,Meal Announcement,Example Person
+2,"Tue, Jan 2",2024-01-02,Event,1175,19:35,2024-01-02 19:35,0,Event,"<b>Event:</b> Insulin Paused, 7:35 PM","Event: Insulin Paused, 7:35 PM","Event: Insulin Paused, 7:35 PM",,,,,Insulin Paused,7:35 PM,6,Event,Example Person
+2,"Tue, Jan 2",2024-01-02,Event,695,11:35,2024-01-02 11:35,0,Event,"<b>Event:</b> Weight Changed from 160lbs to 120lbs, 11:35 AM","Event: Weight Changed from 160lbs to 120lbs, 11:35 AM","Event: Weight Changed from 160lbs to 120lbs, 11:35 AM",,,,,Weight Changed from 160lbs to 120lbs,11:35 AM,6,Event,Example Person

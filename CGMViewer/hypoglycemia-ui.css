@@ -1,0 +1,145 @@
+.hypo-analysis {
+    max-width: 1440px;
+    margin: 16px auto 32px;
+    padding: 24px;
+    color: #263646;
+    background: #f7f5f0;
+    border: 1px solid #d9dee3;
+    border-radius: 10px;
+    box-sizing: border-box;
+}
+
+.hypo-analysis__header,
+.hypo-analysis__toolbar,
+.hypo-analysis__status-strip {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.hypo-analysis__header {
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.hypo-analysis__header-actions,
+.hypo-analysis__detail-header,
+.hypo-analysis__navigation,
+.hypo-analysis__badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.hypo-analysis h2 { margin: 0; font-size: 22px; }
+.hypo-analysis p { margin: 4px 0 0; }
+.hypo-analysis__toolbar { padding: 16px; background: #fff; border: 1px solid #d9dee3; border-radius: 10px; }
+.hypo-analysis__toolbar label { display: grid; gap: 6px; font-weight: 600; }
+.hypo-analysis__toolbar select,
+.hypo-analysis__toolbar button,
+.hypo-analysis button { min-height: 40px; }
+.hypo-analysis__status-strip { justify-content: space-between; margin-top: 12px; padding: 12px 16px; background: #fff; border: 1px solid #d9dee3; border-radius: 10px; }
+.hypo-analysis__counts { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hypo-analysis__timing { color: #667685; }
+.hypo-analysis__definition { margin-top: 12px; }
+.hypo-analysis :focus-visible { outline: 3px solid #2457a7; outline-offset: 2px; }
+
+.hypo-analysis__results {
+    display: grid;
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.hypo-analysis__event-list,
+.hypo-analysis__detail,
+.hypo-analysis__empty {
+    min-width: 0;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #d9dee3;
+    border-radius: 10px;
+}
+
+.hypo-analysis__event-list h3,
+.hypo-analysis__detail h3 { margin: 0 0 12px; font-size: 18px; }
+.hypo-analysis__detail-header { justify-content: space-between; }
+.hypo-analysis__table-scroll { max-height: 760px; overflow: auto; }
+.hypo-analysis table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.hypo-analysis th { position: sticky; top: 0; z-index: 1; padding: 8px 6px; text-align: left; background: #eef2f5; }
+.hypo-analysis td { padding: 6px; border-bottom: 1px solid #e5e9ec; vertical-align: top; }
+.hypo-analysis tr.is-selected td { background: #e8f0fc; }
+.hypo-analysis__event-select { min-height: 36px !important; padding: 4px 6px; color: #174a91; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.hypo-analysis__badges { margin: 8px 0 12px; }
+.hypo-analysis__badge { padding: 4px 8px; border: 1px solid #c7d0d8; border-radius: 999px; background: #f4f7f9; font-size: 12px; font-weight: 700; }
+.hypo-analysis__timeline { padding: 12px; border: 1px solid #dfe4e8; border-radius: 8px; background: #fafbfd; }
+.hypo-analysis__timeline-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.hypo-analysis__timeline-header h4 { margin: 0; font-size: 16px; }
+.hypo-analysis__chart-panel { position: relative; width: 100%; }
+.hypo-analysis__chart-panel--glucose { height: 280px; }
+.hypo-analysis__chart-panel--insulin { height: 120px; margin-top: 4px; }
+.hypo-analysis__chart-legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 4px 0; color: #596b79; font-size: 12px; }
+.hypo-analysis__chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.hypo-analysis__chart-legend i { display: inline-block; width: 18px; height: 8px; box-sizing: border-box; }
+.hypo-analysis__legend-line--glucose { border-top: 2px solid #2457a7; }
+.hypo-analysis__legend-line--insulin { border-top: 2px solid #6f42a6; }
+.hypo-analysis__legend-band { border: 1px solid rgba(38, 54, 70, .18); }
+.hypo-analysis__legend-band--six-hour { background: rgba(0, 114, 178, .28); }
+.hypo-analysis__legend-band--three-hour { background: rgba(230, 159, 0, .32); }
+.hypo-analysis__legend-zero { border: 2px solid #263646; border-radius: 50%; background: #fff; }
+.hypo-analysis__legend-missing { background: repeating-linear-gradient(135deg, #eef0f2 0, #eef0f2 3px, #cfd5da 3px, #cfd5da 4px); }
+.hypo-analysis__off-window { margin-top: 8px; padding: 8px 10px; border-left: 3px solid #b7791f; background: #fff9e9; color: #6f5116; }
+.hypo-analysis__timeline-details { margin-top: 8px; }
+.hypo-analysis__timeline-details summary { cursor: pointer; font-weight: 700; }
+.hypo-analysis__timeline-details > div { max-height: 260px; overflow: auto; font-size: 12px; }
+.hypo-analysis__timeline-details ul { padding-left: 20px; }
+.hypo-analysis__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.hypo-analysis__metric { min-width: 0; padding: 12px; border: 1px solid #dfe4e8; border-radius: 8px; background: #fafbfc; }
+.hypo-analysis__metric--warning { border-color: #d6a540; background: #fff9e9; }
+.hypo-analysis__metric dt { margin-bottom: 6px; color: #5b6b79; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.hypo-analysis__metric dd { margin: 0; }
+.hypo-analysis__metric-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hypo-analysis__metric-detail { margin-top: 5px !important; color: #667685; font-size: 12px; line-height: 1.4; }
+.hypo-analysis__detail-disclosure { margin-top: 8px; padding: 10px 12px; border-top: 1px solid #dfe4e8; }
+.hypo-analysis__detail-disclosure summary { cursor: pointer; font-weight: 700; }
+.hypo-analysis__detail-disclosure ul { margin-bottom: 0; padding-left: 20px; }
+.hypo-analysis__empty { margin-top: 16px; }
+.hypo-analysis__sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.hypo-analysis .hidden { display: none !important; }
+
+@media (max-width: 1000px) {
+    .hypo-analysis__results { grid-template-columns: minmax(0, 1fr); grid-template-areas: "detail" "list"; }
+    .hypo-analysis__detail { grid-area: detail; }
+    .hypo-analysis__event-list { grid-area: list; }
+    .hypo-analysis__table-scroll { max-height: 420px; }
+}
+
+body.hypo-analysis-active > .tir-section,
+body.hypo-analysis-active > .chart-row,
+body.hypo-analysis-active #controls-container,
+body.hypo-analysis-active #advancedActions,
+body.hypo-analysis-active #runDetectionBtn,
+body.hypo-analysis-active #openOptimizationDialogBtn,
+body.hypo-analysis-active #clearDetected,
+body.hypo-analysis-active #clearSelectedPoints,
+body.hypo-analysis-active #downloadSelectedPoints,
+body.hypo-analysis-active #customUploadButton,
+body.hypo-analysis-active #saveDetectedMeals,
+body.hypo-analysis-active #dataProcessingMode,
+body.hypo-analysis-active label[for="dataProcessingMode"] { display: none !important; }
+
+@media (max-width: 600px) {
+    body.hypo-analysis-active .app-shell { display: block; min-width: 0; }
+    body.hypo-analysis-active .app-main { min-width: 0; }
+    .hypo-analysis { margin: 12px; padding: 16px; }
+    .hypo-analysis__header, .hypo-analysis__status-strip { align-items: stretch; flex-direction: column; }
+    .hypo-analysis__toolbar > * { flex: 1 1 100%; }
+    .hypo-analysis__header-actions button { flex: 1 1 100%; }
+    .hypo-analysis__metrics { grid-template-columns: minmax(0, 1fr); }
+    .hypo-analysis__event-list, .hypo-analysis__detail { padding: 12px; }
+    .hypo-analysis table { min-width: 560px; }
+    .hypo-analysis__chart-panel--glucose { height: 240px; }
+    .hypo-analysis__chart-panel--insulin { height: 110px; }
+}
