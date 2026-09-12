@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pikaday/css/pikaday.css">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="hypoglycemia-ui.css">
+    <link rel="stylesheet" href="meal-ui.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/min/moment.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
@@ -25,20 +26,35 @@
     <input type="file" id="insulinFileInput" accept=".csv" class="hidden-input" />
     <div class="app-shell">
 
-        <input type="text" id="datepicker" class="hidden-input">
-
         <div class="app-main">
-            <!-- Dropzone element -->
-            <div id="dropzone" class="dropzone-style">
-                <!-- Container for drag and drop text -->
-                <div id="dropzoneText">
-                    Drag and drop files here, or click to select files
-                </div>
-
-            </div>
-            <details id="supportedFormatsInfo" class="data-formats-info">
-                <summary>Supported Data Formats</summary>
-                <div class="data-formats-content">
+            <header class="app-header">
+                <h1>CGM Viewer</h1>
+                <div class="app-header__menus">
+                    <details id="dataFilesPanel" class="header-menu" open>
+                        <summary>Data &amp; files</summary>
+                        <div class="header-menu__content data-files-content">
+                            <div id="dropzone" class="dropzone-style">
+                                <div id="dropzoneText">Drop a CSV here or choose a file</div>
+                            </div>
+                            <div class="data-file-actions">
+                                <button id="chooseCgmFileBtn" type="button">Upload CSV</button>
+                                <button id="loadExampleCSV" type="button">Try glucose example</button>
+                                <button id="loadPumpExampleCSV" type="button">Try CGM + insulin example</button>
+                                <button id="addInsulinFileBtn" type="button" disabled title="Load a CGM file first, then add a series CSV with insulin rows.">Add insulin file</button>
+                                <a href="anonymize.html" class="button-link">Anonymize data</a>
+                            </div>
+                            <label for="mergePrimaryCgmOnLoad" class="toggle-control">
+                                <input type="checkbox" id="mergePrimaryCgmOnLoad" checked>
+                                Merge with loaded CGM
+                            </label>
+                            <p class="supplemental-import-hint">Supplemental files add insulin, meal, and event annotations. Their CGM rows are ignored.</p>
+                        </div>
+                    </details>
+                    <details class="header-menu">
+                        <summary>Help</summary>
+                        <div id="supportedFormatsInfo" class="header-menu__content data-formats-info">
+                            <h2>Supported data formats</h2>
+                            <div class="data-formats-content">
                     <div class="data-format-card">
                         <h4>Dexcom Clarity Export</h4>
                         <p>Standard Dexcom Clarity CSV exports are supported.</p>
@@ -66,94 +82,175 @@
                     <div class="data-format-note">
                         Times should be parseable as regular date-time strings. Files that include glucose values are automatically binned onto the app's analysis timeline for plotting and downstream calculations.
                     </div>
+                            </div>
+                        </div>
+                    </details>
                 </div>
-            </details>
-            <div class="action-row primary-actions">
-                <label for="detectionMode">Mode:</label>
-                <select id="detectionMode">
+            </header>
+
+            <div id="cgmDataInfo" class="dataset-strip" aria-live="polite"></div>
+
+            <nav class="workspace-tabs" aria-label="Analysis workspace">
+                <button type="button" class="workspace-tab" data-mode-value="summary" aria-selected="true">Overview</button>
+                <button type="button" class="workspace-tab" data-mode-value="meal" aria-selected="false">Meals</button>
+                <button type="button" class="workspace-tab" data-mode-value="hypo-analysis" aria-selected="false">Hypoglycemia</button>
+                <details id="moreTools" class="more-tools">
+                    <summary>More tools</summary>
+                    <div class="more-tools__content">
+                        <button type="button" data-mode-value="hypo">Legacy low-glucose detector</button>
+                        <button type="button" data-mode-value="implausible">Implausible glucose detection</button>
+                        <button id="viewInsulinRateCorrelation" type="button">Insulin vs rate of change</button>
+                        <button id="rawCrossCorrelation" type="button">Raw cross correlation</button>
+                        <button id="normalizedCrossCorrelation" type="button">Normalized cross correlation</button>
+                    </div>
+                </details>
+                <select id="detectionMode" class="hidden-input" aria-hidden="true" tabindex="-1">
                     <option value="summary" selected>Summary</option>
                     <option value="meal">Meal Detection</option>
                     <option value="implausible">Implausible Data Detection</option>
                     <option value="hypo">Hypoglycemia Run Detection</option>
                     <option value="hypo-analysis">Hypoglycemia Analysis</option>
                 </select>
-                <label for="daysToDisplay">Days:</label>
+            </nav>
+
+            <div class="chart-toolbar" aria-label="Chart navigation">
+                <button id="prevWindowBtn" type="button">Previous window</button>
+                <label for="datepicker">Start date</label>
+                <input type="text" id="datepicker" readonly placeholder="Choose date">
+                <button id="nextWindowBtn" type="button">Next window</button>
+                <label for="daysToDisplay">Days</label>
                 <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
-                <label for="mergePrimaryCgmOnLoad">Load Behavior:</label>
-                <label for="mergePrimaryCgmOnLoad" class="tir-overlay-toggle">
-                    <input type="checkbox" id="mergePrimaryCgmOnLoad" checked>
-                    Merge with loaded CGM
-                </label>
-                <label for="dataProcessingMode">Data Scope:</label>
-                <select id="dataProcessingMode">
-                    <option value="visible">Visible Data Only</option>
-                    <option value="whole">Whole Dataset</option>
-                </select>
-                <label for="insulinScaleMode">Insulin Scale:</label>
-                <select id="insulinScaleMode">
-                    <option value="1">0-1 U</option>
-                    <option value="2">0-2 U</option>
-                    <option value="5">0-5 U</option>
-                    <option value="auto_visible">Auto (Visible)</option>
-                    <option value="auto_whole" selected>Auto (Whole Dataset)</option>
-                </select>
-                <div class="nav-group" aria-label="Navigate display window">
-                    <button id="prevDayBtn" type="button" title="Back 1 day">&lt;</button>
-                    <button id="nextDayBtn" type="button" title="Forward 1 day">&gt;</button>
-                    <button id="prevWindowBtn" type="button" title="Back N days">&lt;&lt;</button>
-                    <button id="nextWindowBtn" type="button" title="Forward N days">&gt;&gt;</button>
-                </div>
+                <details class="chart-options">
+                    <summary>Chart options</summary>
+                    <div class="chart-options__content">
+                        <button id="prevDayBtn" type="button">Back one day</button>
+                        <button id="nextDayBtn" type="button">Forward one day</button>
+                        <label for="dataProcessingMode">Overview summary scope</label>
+                        <select id="dataProcessingMode">
+                            <option value="visible">Visible window</option>
+                            <option value="whole">Whole dataset</option>
+                        </select>
+                        <label for="insulinScaleMode">Insulin scale</label>
+                        <select id="insulinScaleMode">
+                            <option value="1">0-1 U</option>
+                            <option value="2">0-2 U</option>
+                            <option value="5">0-5 U</option>
+                            <option value="auto_visible">Auto (visible)</option>
+                            <option value="auto_whole" selected>Auto (whole dataset)</option>
+                        </select>
+                    </div>
+                </details>
             </div>
 
-            <div class="action-row secondary-actions">
-                <button id="openOptimizationDialogBtn">Optimize...</button>
-                <!-- button to search for meals (using meal detecting heuristic)-->
-                <button id="runDetectionBtn">Detect</button>
-                <!-- button to clear auto-detected meals -->
-                <button id="clearDetected">Undetect</button>
-                <button id="clearSelectedPoints">Unselect</button>
-                <button id="downloadSelectedPoints">Download Selection</button>
-                <!-- Hidden file input -->
-                <input type="file" id="uploadSelectedPoints" accept=".csv" class="hidden-input" />
-                <!-- Custom button to upload a set of saved selected points-->
-                <button id="customUploadButton">Upload Selection</button>
-                <button id="addInsulinFileBtn" disabled title="Load a CGM file first, then add a series CSV with insulin rows.">Add Insulin File</button>
-                <button id="loadExampleCSV">Load example CGM</button>
-                <button id="loadPumpExampleCSV">Load example CGM + insulin</button>
-                <button id="saveDetectedMeals">Save Detected Meals</button>
-                <a href="anonymize.html" class="button-link">Anonymize Data</a>
-            </div>
-            <div class="action-row supplemental-import-hint">
-                Add Insulin File overlays insulin from a series CSV and also shows meal and event markers from that file when present. Supplemental CGM rows are ignored.
-            </div>
-
-            <details id="advancedActions" class="advanced-actions">
-                <summary>Advanced Actions</summary>
-                <div class="advanced-actions-content">
-                    <button id="loadPreviousDetectionsBtn">Load Previous Detections</button>
-                    <button id="viewAverageMealResponse">Avg Meal Response</button>
-                    <button id="viewInsulinRateCorrelation">Insulin vs ROC</button>
-                    <button id="rawCrossCorrelation">Raw Cross Correlation</button>
-                    <button id="normalizedCrossCorrelation">Normalized Cross Correlation</button>
+            <section id="mealWorkspace" class="meal-workspace hidden" aria-labelledby="mealWorkspaceTitle">
+                <div class="meal-workspace__heading">
+                    <div>
+                        <h2 id="mealWorkspaceTitle">Meals</h2>
+                        <p>Find glucose rises consistent with meals. The target is an average across analyzed days, not a guaranteed count each day.</p>
+                    </div>
+                    <div class="meal-find-controls">
+                        <label for="targetMealsPerDay">Target meals/day</label>
+                        <input type="number" id="targetMealsPerDay" value="3" step="0.1" min="0.1">
+                        <button id="findMealsBtn" type="button" class="primary-command">Find meals</button>
+                    </div>
                 </div>
-            </details>
+                <div id="optimizationSummary" class="meal-run-status" role="status" aria-live="polite">Load CGM data to find meals.</div>
+                <div id="optimizationProgressContainer" class="hidden">
+                    <progress id="optimizationProgress" value="0" max="100"></progress>
+                    <div id="optimizationProgressText">0% (0/0)</div>
+                    <button id="cancelMealRun" type="button" class="hidden">Cancel</button>
+                </div>
+                <details class="meal-settings">
+                    <summary>Detection settings</summary>
+                    <div class="meal-settings__content">
+                        <label for="mealAnalysisScope">Analyze</label>
+                        <select id="mealAnalysisScope">
+                            <option value="whole" selected>Whole dataset</option>
+                            <option value="visible">Visible window</option>
+                        </select>
+                        <div id="parameter-controls" class="parameter-group">
+                            <label for="triggerRate">Trigger rate (mg/dL/min)</label>
+                            <input type="number" id="triggerRate" value="1.0" step="0.1" min="0">
+                            <label for="mustIncrease">Required rise (mg/dL)</label>
+                            <input type="number" id="mustIncrease" value="30" step="5" min="0">
+                            <label for="mealBlockoutMinutes">Meal blackout (minutes)</label>
+                            <input type="number" id="mealBlockoutMinutes" value="150" step="30" min="0">
+                            <label for="numConsecutiveIncrease">Increasing steps</label>
+                            <input type="number" id="numConsecutiveIncrease" value="3" step="1" min="1">
+                        </div>
+                        <div class="meal-secondary-actions">
+                            <button id="runDetectionBtn" type="button">Run detection with these parameters</button>
+                            <button id="clearDetected" type="button">Clear meal results</button>
+                            <button id="saveDetectedMeals" type="button">Export full event CSV</button>
+                            <button id="viewAverageMealResponse" type="button">Average detected response</button>
+                            <button id="loadPreviousDetectionsBtn" type="button">Load legacy detections</button>
+                        </div>
+                    </div>
+                </details>
+                <select id="optimizationObjective" class="hidden-input" aria-hidden="true"><option value="target" selected>Target meals/day</option></select>
+                <button id="btnOptimizeParams" type="button" class="hidden">Run optimization</button>
+                <button id="btnOptimizationGraphs" type="button" class="hidden">Optimization graphs</button>
+                <div class="hidden" aria-hidden="true">
+                    <input type="file" id="uploadSelectedPoints" accept=".csv" disabled>
+                    <button id="customUploadButton" type="button" disabled>Upload selection</button>
+                    <button id="downloadSelectedPoints" type="button" disabled>Download selection</button>
+                    <button id="clearSelectedPoints" type="button" disabled>Clear selection</button>
+                    <div id="meal-matching-info">
+                        <span id="truePositives">0</span><span id="truePositivesPercent">0%</span>
+                        <span id="falsePositives">0</span><span id="falsePositivesPercent">0%</span>
+                        <span id="missedMeals">0</span><span id="missedMealsPercent">0%</span>
+                    </div>
+                </div>
+                <section id="mealReview" class="meal-review hidden" aria-labelledby="mealReviewTitle">
+                    <div class="meal-review__toolbar">
+                        <div>
+                            <h3 id="mealReviewTitle">Detected meal review</h3>
+                            <div id="mealReviewCounts" class="meal-review__counts"></div>
+                        </div>
+                        <label for="mealReviewDate">Date
+                            <select id="mealReviewDate"><option value="all">All dates</option></select>
+                        </label>
+                        <label for="mealReviewSort">Sort
+                            <select id="mealReviewSort">
+                                <option value="onset">Onset</option>
+                                <option value="peak">Peak glucose</option>
+                                <option value="auc2h">2h pAUC</option>
+                            </select>
+                        </label>
+                        <button id="mealReviewSortDirection" type="button">Ascending</button>
+                        <button id="mealReviewExport" type="button">Export shown meals CSV</button>
+                    </div>
+                    <div id="mealReviewEmpty" class="meal-review__empty hidden"></div>
+                    <div id="mealReviewResults" class="meal-review__results hidden">
+                        <div class="meal-review__event-list">
+                            <div class="meal-review__table-scroll">
+                                <table>
+                                    <thead><tr><th>Onset</th><th>Peak</th><th>Rise</th><th>2h pAUC</th></tr></thead>
+                                    <tbody id="mealReviewRows"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <article id="mealReviewDetail" class="meal-review__detail hidden" tabindex="0">
+                            <header class="meal-review__detail-header">
+                                <div><h3 id="mealReviewDetailTitle"></h3><div id="mealReviewPosition"></div></div>
+                                <div class="meal-review__navigation">
+                                    <button id="mealReviewPrevious" type="button" aria-label="Previous meal">Previous</button>
+                                    <button id="mealReviewNext" type="button" aria-label="Next meal">Next</button>
+                                </div>
+                            </header>
+                            <div class="meal-review__chart-panel"><canvas id="mealReviewChart"></canvas></div>
+                            <p id="mealReviewChartNote" class="meal-review__chart-note"></p>
+                            <dl id="mealReviewMetrics" class="meal-review__metrics"></dl>
+                            <details class="meal-review__disclosure" open><summary>Coverage and quality</summary><div id="mealReviewQuality"></div></details>
+                            <details class="meal-review__disclosure"><summary>Technical details</summary><div id="mealReviewTechnical"></div></details>
+                        </article>
+                    </div>
+                    <div id="mealReviewLive" class="meal-review__sr-only" aria-live="polite"></div>
+                </section>
+            </section>
 
             <!-- Wrapper container to hold both parameter and meal detection controls -->
             <div id="controls-container">
-                <!-- Parameter controls group -->
-                <div id="parameter-controls" class="parameter-group hidden">
-                    <label for="triggerRate">Trigger Rate (mg/dL/min):</label>
-                    <input type="number" id="triggerRate" value="1.0" step="0.1" min="0">
-
-                    <label for="mustIncrease">Must Increase:</label>
-                    <input type="number" id="mustIncrease" value="30" step="5" min="0">
-
-                    <label for="mealBlockoutMinutes">Meal Blockout Minutes:</label>
-                    <input type="number" id="mealBlockoutMinutes" value="150" step="30" min="0">
-
-                    <label for="numConsecutiveIncrease">Num Consecutive Increase:</label>
-                    <input type="number" id="numConsecutiveIncrease" value="3" step="1" min="1">
-                </div>
                 <!-- hypo parameter controls, start out with hidden class -->
                 <div id="hypo-parameter-controls" class="parameter-group hidden">
                     <label for="hypoLowThreshold">Hypo Low Threshold:</label>
@@ -181,26 +278,6 @@
 
                     <label for="implausibleFlankingPoints">Flanking Points:</label>
                     <input type="number" id="implausibleFlankingPoints" value="2" step="1" min="1">
-                </div>
-
-                <!-- New meal matching info group -->
-                <div id="meal-matching-info" class="hidden">
-                    <h4>Meal Matching Info</h4>
-                    <div class="meal-info-row">
-                        <div>True Positives</div>
-                        <div><span id="truePositives" class="meal-info-value">0</span> (<span id="truePositivesPercent"
-                                class="meal-info-value">0%</span>)</div>
-                    </div>
-                    <div class="meal-info-row">
-                        <div>False Positives:</div>
-                        <div><span id="falsePositives" class="meal-info-value">0</span> (<span
-                                id="falsePositivesPercent" class="meal-info-value">0%</span>)</div>
-                    </div>
-                    <div class="meal-info-row">
-                        <div>Missed Meals:</div>
-                        <div><span id="missedMeals" class="meal-info-value">0</span> (<span id="missedMealsPercent"
-                                class="meal-info-value">0%</span>)</div>
-                    </div>
                 </div>
 
                 <div id="range-stats-info" class="hidden">
@@ -231,34 +308,6 @@
                 </div>
 
             </div>
-
-            <div id="optimizationDialogBackdrop" class="hidden"></div>
-            <div id="optimizationDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="optimizationDialogTitle">
-                <div class="optimization-dialog-header">
-                    <h4 id="optimizationDialogTitle">Optimization Settings</h4>
-                    <button id="closeOptimizationDialogBtn" type="button" aria-label="Close optimization settings">Close</button>
-                </div>
-                <div class="optimization-dialog-body">
-                    <button id="btnOptimizationGraphs">Optimization Graphs</button>
-                    <label for="optimizationObjective">Optimization Objective:</label>
-                    <select id="optimizationObjective">
-                        <option value="gold">Gold Standard Score</option>
-                        <option value="target" selected>Target Meals / Day</option>
-                    </select>
-                    <label for="targetMealsPerDay" id="targetMealsPerDayLabel">Target Meals / Day:</label>
-                    <input type="number" id="targetMealsPerDay" value="3" step="1" min="1">
-                    <button id="btnOptimizeParams">Run Optimization</button>
-                    <div id="optimizationSummary">Optimization summary will appear here.</div>
-                    <div id="optimizationProgressContainer" class="hidden">
-                        <progress id="optimizationProgress" value="0" max="100"></progress>
-                        <div id="optimizationProgressText">0% (0/0)</div>
-                    </div>
-                </div>
-            </div>
-
-
-            <!--- add an element to display info about the CGM data --->
-            <div id="cgmDataInfo" class="stack-gap-sm"></div>
 
         </div>
 
@@ -463,6 +512,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/pikaday/pikaday.js"></script>
+    <script src="meal-analysis.js"></script>
+    <script src="meal-ui.js"></script>
     <script src="hypoglycemia-ui.js"></script>
     <script src="bundle.js"></script>
 </body>
