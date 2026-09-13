@@ -113,35 +113,6 @@
                 </select>
             </nav>
 
-            <div class="chart-toolbar" aria-label="Chart navigation">
-                <button id="prevWindowBtn" type="button">Previous window</button>
-                <label for="datepicker">Start date</label>
-                <input type="text" id="datepicker" readonly placeholder="Choose date">
-                <button id="nextWindowBtn" type="button">Next window</button>
-                <label for="daysToDisplay">Days</label>
-                <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
-                <details class="chart-options">
-                    <summary>Chart options</summary>
-                    <div class="chart-options__content">
-                        <button id="prevDayBtn" type="button">Back one day</button>
-                        <button id="nextDayBtn" type="button">Forward one day</button>
-                        <label for="dataProcessingMode">Overview summary scope</label>
-                        <select id="dataProcessingMode">
-                            <option value="visible">Visible window</option>
-                            <option value="whole">Whole dataset</option>
-                        </select>
-                        <label for="insulinScaleMode">Insulin scale</label>
-                        <select id="insulinScaleMode">
-                            <option value="1">0-1 U</option>
-                            <option value="2">0-2 U</option>
-                            <option value="5">0-5 U</option>
-                            <option value="auto_visible">Auto (visible)</option>
-                            <option value="auto_whole" selected>Auto (whole dataset)</option>
-                        </select>
-                    </div>
-                </details>
-            </div>
-
             <section id="mealWorkspace" class="meal-workspace hidden" aria-labelledby="mealWorkspaceTitle">
                 <div class="meal-workspace__heading">
                     <div>
@@ -181,7 +152,6 @@
                         <div class="meal-secondary-actions">
                             <button id="runDetectionBtn" type="button">Run detection with these parameters</button>
                             <button id="clearDetected" type="button">Clear meal results</button>
-                            <button id="saveDetectedMeals" type="button">Export full event CSV</button>
                             <button id="viewAverageMealResponse" type="button">Average detected response</button>
                             <button id="loadPreviousDetectionsBtn" type="button">Load legacy detections</button>
                         </div>
@@ -204,8 +174,8 @@
                 <section id="mealReview" class="meal-review hidden" aria-labelledby="mealReviewTitle">
                     <div class="meal-review__toolbar">
                         <div>
-                            <h3 id="mealReviewTitle">Detected meal review</h3>
-                            <div id="mealReviewCounts" class="meal-review__counts"></div>
+                            <h3 id="mealReviewTitle" tabindex="-1">Detected meal review</h3>
+                    <div id="mealReviewCounts" class="meal-review__counts"></div>
                         </div>
                         <label for="mealReviewDate">Date
                             <select id="mealReviewDate"><option value="all">All dates</option></select>
@@ -218,33 +188,70 @@
                             </select>
                         </label>
                         <button id="mealReviewSortDirection" type="button">Ascending</button>
-                        <button id="mealReviewExport" type="button">Export shown meals CSV</button>
-                    </div>
-                    <div id="mealReviewEmpty" class="meal-review__empty hidden"></div>
-                    <div id="mealReviewResults" class="meal-review__results hidden">
-                        <div class="meal-review__event-list">
-                            <div class="meal-review__table-scroll">
-                                <table>
-                                    <thead><tr><th>Onset</th><th>Peak</th><th>Rise</th><th>2h pAUC</th></tr></thead>
-                                    <tbody id="mealReviewRows"></tbody>
-                                </table>
+                        <details class="review-exports">
+                            <summary>Exports</summary>
+                            <div class="review-exports__content">
+                                <button id="saveDetectedMeals" type="button">Export full event CSV</button>
+                                <button id="mealReviewExport" type="button">Export shown meals CSV</button>
                             </div>
-                        </div>
-                        <article id="mealReviewDetail" class="meal-review__detail hidden" tabindex="0">
-                            <header class="meal-review__detail-header">
-                                <div><h3 id="mealReviewDetailTitle"></h3><div id="mealReviewPosition"></div></div>
+                        </details>
+                    </div>
+
+                    <div id="mealReviewResults" class="meal-review__results hidden">
+                        <details id="mealEventsDisclosure" class="review-event-rail" open>
+                            <summary>Events (<span id="mealEventsDisclosureCount">0</span>)</summary>
+                            <div class="meal-review__event-list">
+                                <div class="meal-review__table-scroll">
+                                    <table>
+                                        <thead><tr><th>Onset</th><th>Peak</th><th>Rise</th><th>2h pAUC</th></tr></thead>
+                                        <tbody id="mealReviewRows"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </details>
+                        <div class="review-focus-main">
+<div class="review-focus-toolbar"><div class="review-focus-tabs" role="tablist" aria-label="Meal review view">
+                        <button id="mealEventTab" type="button" role="tab" aria-selected="true" aria-controls="mealReviewDetail" tabindex="0">Event</button>
+                        <button id="mealTrendsTab" type="button" role="tab" aria-selected="false" aria-controls="mealEventTrends" tabindex="-1">Trends</button>
+                    </div>
+                            <header id="mealFocusHeader" class="meal-review__detail-header hidden">
+                                <h3 id="mealReviewDetailTitle"></h3>
                                 <div class="meal-review__navigation">
+<span id="mealReviewPosition" class="review-position"></span>
                                     <button id="mealReviewPrevious" type="button" aria-label="Previous meal">Previous</button>
                                     <button id="mealReviewNext" type="button" aria-label="Next meal">Next</button>
                                 </div>
                             </header>
-                            <div class="meal-review__chart-panel"><canvas id="mealReviewChart"></canvas></div>
-                            <p id="mealReviewChartNote" class="meal-review__chart-note"></p>
+</div>
+                            <article id="mealReviewDetail" class="meal-review__detail hidden" role="tabpanel" aria-labelledby="mealEventTab" tabindex="0">
+                                <dl id="mealReviewCompactSummary" class="review-compact-summary"></dl>
+                                <div class="meal-review__chart-panel"><canvas id="mealReviewChart"></canvas></div>
+                                <p id="mealReviewChartNote" class="meal-review__chart-note"></p>
+                            </article>
+                    <section id="mealEventTrends" class="meal-review__trends hidden" role="tabpanel" aria-labelledby="mealTrendsTab">
+                        <div class="meal-review__trends-header"><div><h3 id="mealEventTrendsTitle">Event trends</h3><p id="mealTrendScopeLabel"></p></div><button id="mealTrendDownload" type="button">Download plotted rows CSV</button></div>
+                        <div class="meal-review__trend-controls">
+                            <label>View<select id="mealTrendMode"><option value="over_time">Metric over time</option><option value="daily_counts">Detected events per day</option></select></label>
+                            <label>Metric<select id="mealTrendMetric"></select></label>
+                            <label>Time axis<select id="mealTrendTimeBasis"><option value="calendar">Calendar time</option><option value="elapsed_days">Elapsed days</option></select></label>
+                            <label>Origin<input id="mealTrendOrigin" type="datetime-local" step="60"></label>
+                            <label>Quality<select id="mealTrendQuality"><option value="all">Include flagged values</option><option value="unflagged">Unflagged only</option></select></label>
+                        </div>
+                        <p id="mealTrendCounts" class="meal-review__counts"></p>
+                        <div class="meal-review__trend-chart"><canvas id="mealTrendChart" aria-label="Meal event trend chart"></canvas><p id="mealTrendFallback" class="hidden"></p></div>
+                    </section>
+                        </div>
+                    </div>
+                    <div id="mealReviewEmpty" class="meal-review__empty hidden"></div>
+                    <div id="mealOverviewSlot" class="analysis-overview-slot"></div>
+                    <details id="mealReviewFullDetails" class="review-full-details hidden">
+                        <summary>Event details</summary>
+                        <div class="review-full-details__content">
                             <dl id="mealReviewMetrics" class="meal-review__metrics"></dl>
                             <details class="meal-review__disclosure" open><summary>Coverage and quality</summary><div id="mealReviewQuality"></div></details>
                             <details class="meal-review__disclosure"><summary>Technical details</summary><div id="mealReviewTechnical"></div></details>
-                        </article>
-                    </div>
+                        </div>
+                    </details>
                     <div id="mealReviewLive" class="meal-review__sr-only" aria-live="polite"></div>
                 </section>
             </section>
@@ -316,11 +323,17 @@
     <section id="hypoglycemiaAnalysisWorkspace" class="hypo-analysis hidden" aria-labelledby="hypoAnalysisTitle">
         <header class="hypo-analysis__header">
             <div>
-                <h2 id="hypoAnalysisTitle">Hypoglycemia Analysis</h2>
+                <h2 id="hypoAnalysisTitle" tabindex="-1">Hypoglycemia Analysis</h2>
                 <p>Review confirmed low-glucose events across the full retained dataset.</p>
             </div>
             <div class="hypo-analysis__header-actions">
-                <button id="hypoAnalysisDownload" type="button" disabled>Download 0 events CSV</button>
+                <details class="review-exports">
+                    <summary>Exports</summary>
+                    <div class="review-exports__content">
+                        <button id="hypoDailyDownload" type="button" disabled>Download daily summaries CSV</button>
+                        <button id="hypoAnalysisDownload" type="button" disabled>Download 0 events CSV</button>
+                    </div>
+                </details>
                 <button id="hypoAnalysisRun" type="button" disabled>Run analysis</button>
             </div>
         </header>
@@ -356,30 +369,54 @@
             <span id="hypoAnalysisTiming" class="hypo-analysis__timing"></span>
         </div>
         <div id="hypoAnalysisLive" class="hypo-analysis__sr-only" aria-live="polite"></div>
+
         <div id="hypoAnalysisResults" class="hypo-analysis__results hidden">
-            <section class="hypo-analysis__event-list" aria-labelledby="hypoAnalysisEventListTitle">
-                <h3 id="hypoAnalysisEventListTitle">Event list</h3>
-                <div class="hypo-analysis__table-scroll">
-                    <table>
-                        <thead>
-                            <tr><th>Onset</th><th>Nadir</th><th>Min</th><th>Status</th></tr>
-                        </thead>
-                        <tbody id="hypoAnalysisEventRows"></tbody>
-                    </table>
-                </div>
-            </section>
-            <section id="hypoAnalysisDetail" class="hypo-analysis__detail hidden" aria-labelledby="hypoAnalysisDetailTitle">
-                <div class="hypo-analysis__detail-header">
-                    <div>
-                        <h3 id="hypoAnalysisDetailTitle">Event</h3>
-                        <p id="hypoAnalysisPosition"></p>
+            <details id="hypoEventsDisclosure" class="review-event-rail" open>
+                <summary>Events (<span id="hypoEventsDisclosureCount">0</span>)</summary>
+                <section class="hypo-analysis__event-list" aria-labelledby="hypoAnalysisEventListTitle">
+                    <h3 id="hypoAnalysisEventListTitle">Event list</h3>
+                    <div class="hypo-analysis__table-scroll">
+                        <table>
+                            <thead>
+                                <tr><th>Onset</th><th>Nadir</th><th>Min</th><th>Status</th></tr>
+                            </thead>
+                            <tbody id="hypoAnalysisEventRows"></tbody>
+                        </table>
                     </div>
-                    <div class="hypo-analysis__navigation" aria-label="Navigate displayed events">
-                        <button id="hypoAnalysisPrevious" type="button">Previous</button>
-                        <button id="hypoAnalysisNext" type="button">Next</button>
-                    </div>
+                </section>
+            </details>
+            <div class="review-focus-main">
+<div class="review-focus-toolbar"><div class="review-focus-tabs" role="tablist" aria-label="Hypoglycemia review view">
+            <button id="hypoEventTab" type="button" role="tab" aria-selected="true" aria-controls="hypoAnalysisDetail" tabindex="0">Event</button>
+            <button id="hypoTrendsTab" type="button" role="tab" aria-selected="false" aria-controls="hypoEventTrends" tabindex="-1">Trends</button>
+        </div>
+            <div id="hypoFocusHeader" class="hypo-analysis__detail-header hidden">
+                <h3 id="hypoAnalysisDetailTitle">Event</h3>
+                <div class="hypo-analysis__navigation" aria-label="Navigate displayed events">
+<span id="hypoAnalysisPosition" class="review-position"></span>
+                    <button id="hypoAnalysisPrevious" type="button">Previous</button>
+                    <button id="hypoAnalysisNext" type="button">Next</button>
                 </div>
+            </div>
+</div>
+        <section id="hypoEventTrends" class="hypo-analysis__trends hidden" role="tabpanel" aria-labelledby="hypoTrendsTab">
+            <div class="hypo-analysis__trends-header">
+                <div><h3 id="hypoEventTrendsTitle">Event trends</h3><p id="hypoTrendScopeLabel">All events in the selected review scope.</p></div>
+                <button id="hypoTrendDownload" type="button">Download plotted rows CSV</button>
+            </div>
+            <div class="hypo-analysis__trend-controls">
+                <label>View<select id="hypoTrendMode"><option value="over_time">Metric over time</option><option value="daily_counts">Detected events per day</option></select></label>
+                <label>Metric<select id="hypoTrendMetric"></select></label>
+                <label>Time axis<select id="hypoTrendTimeBasis"><option value="calendar">Calendar time</option><option value="elapsed_days">Elapsed days</option></select></label>
+                <label>Origin<input id="hypoTrendOrigin" type="datetime-local" step="60"></label>
+                <label>Quality<select id="hypoTrendQuality"><option value="all">Include flagged values</option><option value="unflagged">Unflagged only</option></select></label>
+            </div>
+            <p id="hypoTrendCounts" class="hypo-analysis__trend-counts"></p>
+            <div class="hypo-analysis__trend-chart"><canvas id="hypoTrendChart" aria-label="Hypoglycemia event trend chart"></canvas><p id="hypoTrendFallback" class="hidden"></p></div>
+        </section>
+            <section id="hypoAnalysisDetail" class="hypo-analysis__detail hidden" role="tabpanel" aria-labelledby="hypoEventTab">
                 <div id="hypoAnalysisBadges" class="hypo-analysis__badges"></div>
+                <dl id="hypoAnalysisCompactSummary" class="review-compact-summary"></dl>
                 <section class="hypo-analysis__timeline" aria-labelledby="hypoAnalysisTimelineTitle">
                     <div class="hypo-analysis__timeline-header">
                         <div>
@@ -402,12 +439,20 @@
                         <span><i class="hypo-analysis__legend-missing"></i>Missing insulin</span>
                     </div>
                     <div id="hypoAnalysisOffWindow" class="hypo-analysis__off-window hidden"></div>
-                    <details class="hypo-analysis__timeline-details">
-                        <summary>Timeline source observations</summary>
-                        <div id="hypoAnalysisTimelineDetails"></div>
-                    </details>
                 </section>
+            </section>
+            </div>
+        </div>
+        <div id="hypoAnalysisEmptyResults" class="hypo-analysis__empty hidden"></div>
+        <div id="hypoOverviewSlot" class="analysis-overview-slot"></div>
+        <details id="hypoAnalysisFullDetails" class="review-full-details hidden">
+            <summary>Event details</summary>
+            <div class="review-full-details__content">
                 <dl id="hypoAnalysisMetrics" class="hypo-analysis__metrics"></dl>
+                <details class="hypo-analysis__timeline-details">
+                    <summary>Timeline source observations</summary>
+                    <div id="hypoAnalysisTimelineDetails"></div>
+                </details>
                 <details class="hypo-analysis__detail-disclosure">
                     <summary>Data quality</summary>
                     <div id="hypoAnalysisQuality"></div>
@@ -416,17 +461,40 @@
                     <summary>Source and analysis details</summary>
                     <div id="hypoAnalysisSources"></div>
                 </details>
-            </section>
-        </div>
-        <div id="hypoAnalysisEmptyResults" class="hypo-analysis__empty hidden"></div>
+            </div>
+        </details>
         <details class="hypo-analysis__definition">
             <summary>Event definition</summary>
             <p>Three consecutive present five-minute CGM bins below 70 mg/dL confirm onset. Three consecutive bins at or above 70 confirm recovery. A reading below 54 marks Level 2. Missing bins do not count toward confirmation.</p>
         </details>
     </section>
 
-    <div class="glucose-chart-container">
-        <canvas id="glucoseChart" class="chart"></canvas>
+    <div id="overviewDefaultSlot" class="analysis-overview-slot">
+    <section id="overviewContext" class="analysis-overview-context" aria-labelledby="overviewContextTitle">
+        <h2 id="overviewContextTitle" class="analysis-overview-context__title">Overview</h2>
+        <div class="chart-toolbar" aria-label="Chart navigation">
+            <button id="prevWindowBtn" type="button">Previous window</button>
+            <label for="datepicker">Start date</label>
+            <input type="text" id="datepicker" readonly placeholder="Choose date">
+            <button id="nextWindowBtn" type="button">Next window</button>
+            <label for="daysToDisplay">Days</label>
+            <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
+            <details class="chart-options">
+                <summary>Chart options</summary>
+                <div class="chart-options__content">
+                    <button id="prevDayBtn" type="button">Back one day</button>
+                    <button id="nextDayBtn" type="button">Forward one day</button>
+                    <label for="dataProcessingMode">Overview summary scope</label>
+                    <select id="dataProcessingMode"><option value="visible">Visible window</option><option value="whole">Whole dataset</option></select>
+                    <label for="insulinScaleMode">Insulin scale</label>
+                    <select id="insulinScaleMode"><option value="1">0-1 U</option><option value="2">0-2 U</option><option value="5">0-5 U</option><option value="auto_visible">Auto (visible)</option><option value="auto_whole" selected>Auto (whole dataset)</option></select>
+                </div>
+            </details>
+        </div>
+        <div class="glucose-chart-container">
+            <canvas id="glucoseChart" class="chart"></canvas>
+        </div>
+    </section>
     </div>
     <section id="tirSection" class="tir-section hidden" aria-labelledby="tirSectionTitle">
         <div class="tir-section-header">

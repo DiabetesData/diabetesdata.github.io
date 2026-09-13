@@ -1,5 +1,858 @@
-"use strict";var MealAnalysis=(()=>{var A=Object.defineProperty,de=Object.getOwnPropertyDescriptor,pe=Object.getOwnPropertyNames,fe=Object.prototype.hasOwnProperty,ge=(t,e)=>{for(var n in e)A(t,n,{get:e[n],enumerable:!0})},_e=(t,e,n,i)=>{if(e&&typeof e=="object"||typeof e=="function")for(let r of pe(e))!fe.call(t,r)&&r!==n&&A(t,r,{get:()=>e[r],enumerable:!(i=de(e,r))||i.enumerable});return t},he=t=>_e(A({},"__esModule",{value:!0}),t),V={};ge(V,{DEFAULT_MEAL_PARAMS:()=>Z,MEAL_ANALYSIS_VERSION:()=>G,MEAL_BIN_MS:()=>v,MEAL_DETECTOR_VERSION:()=>U,MEAL_EVENT_CSV_COLUMNS:()=>z,MEAL_GRID_VERSION:()=>$,MEAL_METRIC_VERSION:()=>L,MEAL_OPTIMIZATION_TOTAL:()=>Pe,applyMealExclusions:()=>ke,beginMealSourceImport:()=>Re,buildGridFromLegacyRows:()=>J,buildMealEvents:()=>ie,buildMealGrid:()=>Y,buildOptimizedMealRun:()=>xe,buildParameterMealRun:()=>oe,commitMealSourceImport:()=>De,compareMealOptimizationRows:()=>se,createMealSourceState:()=>Te,defaultMealOptimizationGrid:()=>re,detectLegacyRows:()=>Ce,detectMeals:()=>R,detectionToLegacyResult:()=>Q,formatMealTimestamp:()=>j,gridForMealScope:()=>F,mealRunToCsv:()=>Oe,optimizeMealParams:()=>ae,parseMealSource:()=>K,parseMealTimestamp:()=>B,summarizeMeal:()=>ne});var v=5*6e4,U="meal-detector-v1",$="meal-grid-v1",L="meal-metrics-v1",G="meal-analysis-v1";function H(t){const e=t.replace(/^\uFEFF/,""),n=[];let i=[],r="",s=!1;const a=()=>{i.push(r),r=""},o=()=>{a(),n.push(i),i=[]};for(let m=0;m<e.length;m++){const u=e[m];if(s){u==='"'?e[m+1]==='"'?(r+='"',m++):s=!1:r+=u;continue}u==='"'&&r.length===0?s=!0:u===","?a():u===`
-`?o():u==="\r"?(e[m+1]===`
-`&&m++,o()):r+=u}if(s)throw new Error("CSV contains an unterminated quoted field.");for((r.length>0||i.length>0)&&o();n.length>0&&n[n.length-1].every(m=>m==="");)n.pop();if(n.length===0)throw new Error("CSV is empty.");const l=n.shift().map(m=>m.trim());if(l.some(m=>m===""))throw new Error("CSV contains an empty column name.");const c=l.map(m=>m.toLowerCase());if(new Set(c).size!==c.length)throw new Error("CSV contains duplicate column names.");const _=n.map((m,u)=>{if(m.length>l.length)throw new Error(`CSV row ${u+2} has more fields than the header.`);return[...m,...new Array(l.length-m.length).fill("")]});return{headers:l,rows:_}}function ve(t){const e=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?$/.exec(t);if(e)return[Number(e[1]),Number(e[2]),Number(e[3]),Number(e[4]),Number(e[5]),Number(e[6]??0),Number((e[7]??"").padEnd(3,"0")||0)];const n=/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)$/i.exec(t);if(!n)return null;let i=Number(n[4])%12;return n[7].toUpperCase()==="PM"&&(i+=12),[Number(n[3]),Number(n[1]),Number(n[2]),i,Number(n[5]),Number(n[6]??0),0]}function ye(t){const[e,n,i,r,s,a,o]=t,l=new Date(Date.UTC(e,n-1,i,r,s,a,o));return l.getUTCFullYear()===e&&l.getUTCMonth()===n-1&&l.getUTCDate()===i&&l.getUTCHours()===r&&l.getUTCMinutes()===s&&l.getUTCSeconds()===a}function B(t){const e=t.trim(),i=/(Z|[+-]\d{2}:\d{2})$/i.exec(e)?.[1],r=i?e.slice(0,-i.length):e,s=ve(r);if(!s||!ye(s))throw new Error(`Invalid timestamp: ${t}`);let a=Date.UTC(s[0],s[1]-1,s[2],s[3],s[4],s[5],s[6]);if(i&&i.toUpperCase()!=="Z"){const o=Number(i.slice(1,3)),l=Number(i.slice(4,6));if(o>14||l>59||o===14&&l!==0)throw new Error(`Invalid timestamp offset: ${t}`);const c=i[0]==="-"?-1:1;a-=c*(o*60+l)*6e4}return{time:a,basis:i?"utc":"local_unspecified"}}function j(t,e){const n=new Date(t).toISOString();return e==="utc"?n:n.slice(0,19)}function W(t){return t.map(e=>e.replace(/^\uFEFF/,"").trim().toLowerCase())}function be(t,e){if(e!=="libre"){const s=H(t);return{headers:W(s.headers),rows:s.rows,headerRow:1}}const n=t.split(/\r?\n/),i=n.findIndex(s=>{const a=s.toLowerCase();return a.includes("device timestamp")&&a.includes("record type")&&a.includes("historic glucose mg/dl")});if(i<0)throw new Error("Libre headers were not found.");const r=H(n.slice(i).join(`
-`));return{headers:W(r.headers),rows:r.rows,headerRow:i+1}}function k(t,e,n){const i=t.indexOf(e);if(i<0)throw new Error(`${n.name}: missing ${e} column.`);return i}function x(t,e,n,i,r){let s;try{s=B(i)}catch{throw new Error(`${t.name}, row ${n}: invalid CGM timestamp.`)}if(e.basis&&e.basis!==s.basis)throw new Error(`${t.name}: mixed timestamp bases.`);e.basis=s.basis;const a=r.trim()&&Number.isFinite(Number(r))&&Number(r)>0?Number(r):null;e.cgm.push({sourceId:t.id,sourceName:t.name,row:n,sourceTimestamp:i,time:s.time,value:a,includedInAnalysis:!0})}function Me(t,e,n,i,r){let s;try{s=B(i)}catch{return}if(e.basis&&e.basis!==s.basis)throw new Error(`${t.name}: mixed timestamp bases.`);e.basis=s.basis,e.references.push({sourceId:t.id,sourceName:t.name,row:n,sourceTimestamp:i,time:s.time,label:r})}function K(t){const{headers:e,rows:n,headerRow:i}=be(t.text,t.format),r={basis:null,cgm:[],references:[]};if(t.format==="dexcom"){const s=k(e,"timestamp (yyyy-mm-ddthh:mm:ss)",t),a=k(e,"glucose value (mg/dl)",t),o=k(e,"event type",t);n.forEach((l,c)=>{(l[o]??"").trim().toLowerCase()==="egv"&&x(t,r,i+c+1,l[s]??"",l[a]??"")})}else if(t.format==="libre"){const s=k(e,"device timestamp",t),a=k(e,"record type",t),o=k(e,"historic glucose mg/dl",t),l=e.indexOf("scan glucose mg/dl");n.forEach((c,_)=>{const m=(c[a]??"").trim();m==="0"?x(t,r,i+_+1,c[s]??"",c[o]??""):m==="1"&&l>=0&&x(t,r,i+_+1,c[s]??"",c[l]??"")})}else if(t.format==="simple"){const s=k(e,"measurement_time",t),a=k(e,"blood_sugar",t);n.forEach((o,l)=>x(t,r,i+l+1,o[s]??"",o[a]??""))}else{const s=k(e,"series",t),a=k(e,"datetime_local",t),o=k(e,"value",t),l=e.indexOf("annotation_kind"),c=e.indexOf("meal_type");n.forEach((_,m)=>{const u=(_[s]??"").trim().toLowerCase();t.kind==="primary"&&u==="cgm"&&x(t,r,i+m+1,_[a]??"",_[o]??"");const d=l>=0?(_[l]??"").trim().toLowerCase():"";(u.includes("meal announcement")||d==="meal")&&Me(t,r,i+m+1,_[a]??"",c>=0?_[c]??"Reported meal":"Reported meal")})}return r}function q(t){return new Date(t).toISOString().slice(0,10)}function Y(t){if(!t.some(u=>u.kind==="primary"))throw new Error("Load a primary CGM source.");const e=t.map(K),n=new Set(e.map(u=>u.basis).filter(u=>u!==null));if(n.size>1)throw new Error("Cannot mix offset-free and offset-aware timestamps.");const i=[...n][0];if(!i)throw new Error("No CGM observations found.");const r=e.flatMap(u=>u.cgm).sort((u,d)=>u.time-d.time||u.row-d.row);if(!r.length)throw new Error("No CGM observations found.");const s=Math.floor(r[0].time/v)*v,a=Math.floor(r[r.length-1].time/v)*v,o=Array.from({length:(a-s)/v+1},(u,d)=>({time:s+d*v,glucose:null,observations:[],warnings:[]}));r.forEach(u=>o[Math.floor((u.time-s)/v)].observations.push(u));let l=0,c=0,_=0;for(const u of o){const d=new Map;for(const b of u.observations){if(b.value===null){_++,u.warnings.push("invalid_cgm_observation");continue}const p=JSON.stringify([b.time,b.value]);d.has(p)?(b.includedInAnalysis=!1,l++,u.warnings.push("duplicate_cgm_observation")):d.set(p,b)}const M=[...d.values()];new Set(M.map(b=>b.value)).size>1&&(c++,u.warnings.push("conflicting_cgm_observations")),M.length&&(u.glucose=M.reduce((b,p)=>b+p.value,0)/M.length),u.warnings=[...new Set(u.warnings)]}const m=new Set;return l&&m.add("duplicate_cgm_observations_counted_once"),c&&m.add("conflicting_cgm_observations_averaged"),_&&m.add("invalid_cgm_observations_excluded"),i==="local_unspecified"&&m.add("timezone_unspecified_wall_clock_arithmetic"),{gridVersion:$,exclusionRevision:0,timeBasis:i,sourceIds:t.map(u=>u.id),bins:o,references:e.flatMap(u=>u.references).sort((u,d)=>u.time-d.time),validDayKeys:[...new Set(o.filter(u=>u.glucose!==null).map(u=>q(u.time)))],warnings:[...m],duplicateObservationCount:l,conflictingBinCount:c,invalidObservationCount:_}}function ke(t,e,n){const i=new Set(e),r=t.bins.map(s=>i.has(s.time)?{...s,glucose:null,warnings:[...new Set([...s.warnings,"excluded_implausible_bin"])]}:s);return{...t,exclusionRevision:n,bins:r,validDayKeys:[...new Set(r.filter(s=>s.glucose!==null).map(s=>q(s.time)))]}}var Z={triggerRateMgdlPerMin:1,mustIncrease:30,mealBlockoutMinutes:120,numConsecutiveIncrease:3,confirmWindowMinutes:60};function we(t){if(!Number.isFinite(t.triggerRateMgdlPerMin)||t.triggerRateMgdlPerMin<0||!Number.isFinite(t.mustIncrease)||t.mustIncrease<0||!Number.isFinite(t.mealBlockoutMinutes)||t.mealBlockoutMinutes<0||!Number.isInteger(t.numConsecutiveIncrease)||t.numConsecutiveIncrease<1||!Number.isFinite(t.confirmWindowMinutes??60)||(t.confirmWindowMinutes??60)<0)throw new Error("Meal detector parameters are invalid.")}function R(t,e=Z){we(e);const n=t.bins;if(n.length<3)return[];const i=n.map(c=>c.glucose),r=i.map((c,_)=>_>0&&c!==null&&i[_-1]!==null?c-i[_-1]:null),s=Math.floor((e.confirmWindowMinutes??60)/5),a=Math.max(1,Math.round(e.mealBlockoutMinutes/5)),o=[];let l=1;for(let c=1;c<n.length;c++){if(c<l)continue;const _=r[c];if(_===null||_/5<e.triggerRateMgdlPerMin||c+e.numConsecutiveIncrease-1>=n.length)continue;let m=!0,u=0;for(let h=c;h<c+e.numConsecutiveIncrease;h++){const I=r[h];if(I===null)u++;else if(I<=0){m=!1;break}}if(!m)continue;const d=c-1,M=i[d];if(M===null)continue;const b=Math.min(n.length-1,c+s);let p=-1;for(let h=c;h<=b;h++)if(i[h]!==null&&i[h]-M>=e.mustIncrease){p=h;break}if(p<0)continue;const y=Math.min(n.length-1,d+s+12);let C=d,S=M;for(let h=d;h<=y;h++)i[h]!==null&&i[h]>S&&(S=i[h],C=h);const O=Math.min(n.length-1,d+24);let E=0;for(let h=d+1;h<=O;h++){const I=i[h-1],P=i[h];I!==null&&P!==null&&(E+=(I+P)*.5*5)}const T=u?["missing_observation_in_accepted_streak"]:[];o.push({detectorVersion:U,timestamp:n[d].time,t0:n[d].time,tConfirm:n[p].time,timeToConfirmMin:(n[p].time-n[d].time)/6e4,tPeak:n[C].time,peak:S,peakOneHour:S-M,area2h:E,triggerIndex:c,confirmationIndex:p,peakIndex:C,missingStreakBins:u,warnings:T}),l=d+a}return o}function J(t){const e=t.map((a,o)=>({time:new Date(a.Timestamp).getTime(),value:Number.isFinite(Number(a.GlucoseValue))?Number(a.GlucoseValue):null,index:o})).filter(a=>Number.isFinite(a.time)).sort((a,o)=>a.time-o.time);if(!e.length)return{gridVersion:"legacy-worker-grid-v1",exclusionRevision:0,timeBasis:"utc",sourceIds:["legacy"],bins:[],references:[],validDayKeys:[],warnings:[],duplicateObservationCount:0,conflictingBinCount:0,invalidObservationCount:0};const n=Math.floor(e[0].time/v)*v,i=Math.ceil(e[e.length-1].time/v)*v,r=Array.from({length:(i-n)/v+1},(a,o)=>({time:n+o*v,glucose:null,observations:[],warnings:[]})),s=new Map;for(const a of e){if(a.value===null)continue;const o=Math.floor((a.time-n)/v),l=s.get(o)??[];l.push(a.value),s.set(o,l)}return s.forEach((a,o)=>{r[o].glucose=a.reduce((l,c)=>l+c,0)/a.length}),{gridVersion:"legacy-worker-grid-v1",exclusionRevision:0,timeBasis:"utc",sourceIds:["legacy"],bins:r,references:[],validDayKeys:[...new Set(r.filter(a=>a.glucose!==null).map(a=>new Date(a.time).toISOString().slice(0,10)))],warnings:[],duplicateObservationCount:0,conflictingBinCount:0,invalidObservationCount:0}}function Q(t,e=n=>new Date(n).toISOString()){const n=e(t.t0);return{Timestamp:n,t0:n,t_confirm:e(t.tConfirm),time_to_confirm_min:t.timeToConfirmMin,t_peak:e(t.tPeak),peak:t.peak,peakOneHour:t.peakOneHour,area_2h:t.area2h}}function Ce(t,e){const n=new Map(t.map(r=>[new Date(r.Timestamp).getTime(),r.Timestamp])),i=r=>n.get(r)??new Date(r).toISOString();return R(J(t),e).map(r=>Q(r,i))}function D(t,e,n){const i=Math.floor((n-e)/5)+1,r=t.filter(s=>s.minute>=e&&s.minute<=n&&s.glucose!==null).length;return{expected:i,observed:r,pct:i?r/i*100:0}}function Ie(t){return t.length?t.reduce((e,n)=>e+n,0)/t.length:null}function X(t){const e=t.filter(a=>a.glucose!==null);if(e.length<2||new Set(e.map(a=>a.minute)).size<2)return null;const n=e.reduce((a,o)=>a+o.minute,0)/e.length,i=e.reduce((a,o)=>a+o.glucose,0)/e.length,r=e.reduce((a,o)=>a+(o.minute-n)**2,0);if(!r)return null;const s=e.reduce((a,o)=>a+(o.minute-n)*(o.glucose-i),0)/r;return{slope:s,intercept:i-s*n,startMinute:e[0].minute,endMinute:e[e.length-1].minute}}function ee(t,e,n){let i=0,r=0;for(let s=1;s<t.length;s++){const a=t[s-1],o=t[s];if(a.minute<0||o.minute>n||a.glucose===null||o.glucose===null)continue;const l=o.minute-a.minute;l<=0||l>5.000001||(i+=(Math.max(a.glucose-e,0)+Math.max(o.glucose-e,0))*.5*l,r+=l)}return{area:r>0?i:null,minutes:r}}function te(t,e){const n=t.filter(i=>i.minute>=0&&i.minute<=240&&i.glucose!==null).map(i=>i.glucose);return n.length?n.filter(i=>i>e).length/n.length*100:null}function Se(t){let e=0,n=0;for(const i of t)i.glucose===null?(n+=5,e=Math.max(e,n)):n=0;return e}function ne(t,e){const n=e.t0-18e5,i=e.t0+240*6e4,r=[];for(let f=n;f<=i;f+=v){const g=Math.round((f-t.bins[0].time)/v);r.push({minute:(f-e.t0)/6e4,time:f,glucose:g>=0&&g<t.bins.length?t.bins[g].glucose:null})}const s=r.filter(f=>f.minute>=-30&&f.minute<=0&&f.glucose!==null),a=Ie(s.map(f=>f.glucose)),o=r.filter(f=>f.minute>=0&&f.minute<=240),l=o.filter(f=>f.glucose!==null),c=D(r,-30,0),_=D(r,0,120),m=D(r,0,240),u=D(r,-30,240),d=[];c.observed<c.expected&&d.push("incomplete_baseline_coverage"),_.observed<_.expected&&d.push("incomplete_2h_coverage"),m.observed<m.expected&&d.push("incomplete_4h_coverage");const M=n<t.bins[0].time,b=i>t.bins[t.bins.length-1].time;M&&d.push("dataset_truncated_before_meal"),b&&d.push("dataset_truncated_after_meal");let p=null,y=null,C=null,S=null,O=null,E=null,T=null,h={area:null,minutes:0},I={area:null,minutes:0};if(a!==null){const f=l.filter(g=>g.minute<=120);for(const g of f)(!p||g.glucose>p.glucose)&&(p=g);for(const g of l)if(!y)y=g;else{const me=Math.abs(g.minute-120)-Math.abs(y.minute-120);(me<0||me===0&&g.minute<y.minute)&&(y=g)}p&&(O=a+(p.glucose-a)/2,C=l.find(g=>g.minute>p.minute&&g.glucose<=O)??null,S=l.find(g=>g.minute>p.minute&&g.glucose<=a)??null,E=X(o.filter(g=>g.minute<=p.minute)),C&&(T=X(o.filter(g=>g.minute>=p.minute&&g.minute<=C.minute)))),h=ee(o,a,120),I=ee(o,a,240)}else d.push("baseline_unavailable");y&&y.minute!==120&&d.push("approximate_2h_sample"),h.minutes<120&&d.push("incomplete_2h_auc"),I.minutes<240&&d.push("incomplete_4h_auc");const P=t.references.reduce((f,g)=>!f||Math.abs(g.time-e.t0)<Math.abs(f.time-e.t0)?g:f,null),ue=p?l.filter(f=>f.minute>p.minute&&f.minute<=120):[],ce=p?l.filter(f=>f.minute>p.minute&&f.minute<=240):[];return{metricVersion:L,gBaseline:a,baselineObserved:s.length,gPeak:p?.glucose??null,peakTime:p?.time??null,timeToPeakMin:p?.minute??null,deltaPeak:a!==null&&p?p.glucose-a:null,delta2h:a!==null&&y?y.glucose-a:null,sample2hTime:y?.time??null,sample2hOffsetMin:y?y.minute-120:null,approximate2hSample:y?y.minute!==120:null,gHalf:O,timeToHalfMin:C?.minute??null,peakToHalfMin:p&&C?C.minute-p.minute:null,slopeUpMgdlPerMin:E?.slope??null,slopeDownMgdlPerMin:T?.slope??null,slopeUpFit:E,slopeDownFit:T,returnedToBaseline2h:p&&ue.length?ue.some(f=>f.glucose<=a):null,returnedToBaseline4h:p&&ce.length?ce.some(f=>f.glucose<=a):null,timeBackToBaselineMin:S?.minute??null,aucPositive2h:h.area,aucPositive4h:I.area,aucIntegrated2hMin:h.minutes,aucIntegrated4hMin:I.minutes,timeAbove140Pct:te(o,140),timeAbove180Pct:te(o,180),observedPostSamples:l.length,referenceOffsetMin:P?(P.time-e.t0)/6e4:null,referenceTime:P?.time??null,referenceLabel:P?.label??null,coverageBaseline:c,coveragePost2h:_,coveragePost4h:m,coverageFull:u,maxGapMinutes:Se(r),truncatedBefore:M,truncatedAfter:b,warnings:[...new Set(d)]}}function ie(t,e){return e.map((n,i)=>{const r=ne(t,n);return{...n,...r,warnings:[...new Set([...n.warnings,...r.warnings])],eventId:`${n.detectorVersion}:${n.t0}`,overlapWithin4h:e.some((s,a)=>a!==i&&s.t0>n.t0&&s.t0<=n.t0+144e5)}})}var Pe=800;function re(){const t=[];for(let e=0;e<=9;e++)for(let n=10;n<=55;n+=5)for(let i=1;i<=8;i++)t.push({triggerRateMgdlPerMin:Number((e*.2).toFixed(1)),mustIncrease:n,numConsecutiveIncrease:i,mealBlockoutMinutes:120,confirmWindowMinutes:60});return t}function se(t,e){return e.score-t.score||t.mustIncrease-e.mustIncrease||t.numConsecutiveIncrease-e.numConsecutiveIncrease||t.triggerRateMgdlPerMin-e.triggerRateMgdlPerMin||t.mealBlockoutMinutes-e.mealBlockoutMinutes}function Ee(t){return new Date(t).toISOString().slice(0,10)}function F(t,e){const n=t.bins.filter(r=>r.time>=e.startMs&&r.time<=e.endMs),i=[...new Set(n.filter(r=>r.glucose!==null).map(r=>Ee(r.time)))];return{...t,bins:n,validDayKeys:i}}function ae(t,e){if(!Number.isFinite(e.targetMealsPerDay)||e.targetMealsPerDay<=0)throw new Error("Target meals per day must be a positive finite number.");const n=t.validDayKeys.length;if(!t.bins.length||n<1)throw new Error("The meal analysis scope contains no valid CGM observations.");const i=re(),r=[];for(let s=0;s<i.length;s++){if(e.isCancelled?.())throw new Error("Meal analysis cancelled.");const a=i[s],o=R(t,a).length,l=o/n,c=((l-e.targetMealsPerDay)/e.targetMealsPerDay)**2;r.push({...a,detectedCount:o,achievedMealsPerDay:l,countPenalty:c,score:c===0?0:-c}),e.onProgress?.({evaluated:s+1,total:i.length})}return r.sort(se),{best:r[0],rows:r,analyzedDayCount:n}}function xe(t,e){const n=F(t,e.scope),i=ae(n,e);if(e.isCancelled?.())throw new Error("Meal analysis cancelled.");const r={triggerRateMgdlPerMin:i.best.triggerRateMgdlPerMin,mustIncrease:i.best.mustIncrease,mealBlockoutMinutes:i.best.mealBlockoutMinutes,numConsecutiveIncrease:i.best.numConsecutiveIncrease,confirmWindowMinutes:i.best.confirmWindowMinutes};return{run:{...oe(t,{...e,params:r,targetMealsPerDay:null}),targetMealsPerDay:e.targetMealsPerDay},optimization:i}}function oe(t,e){const n=F(t,e.scope),i=n.validDayKeys.length;if(!n.bins.length||i<1)throw new Error("The meal analysis scope contains no valid CGM observations.");const r={...e.params},s=R(n,r),a=ie(t,s);return{analysisVersion:G,detectorVersion:s[0]?.detectorVersion??"meal-detector-v1",metricVersion:L,datasetRevision:e.datasetRevision,exclusionRevision:e.exclusionRevision,runId:e.runId,timeBasis:t.timeBasis,scope:{...e.scope},targetMealsPerDay:e.targetMealsPerDay??null,params:r,analyzedDayCount:i,detectedCount:a.length,achievedMealsPerDay:a.length/i,sourceIds:[...t.sourceIds],analysisBounds:{startMs:n.bins[0].time,endMs:n.bins[n.bins.length-1].time},gridWarnings:[...t.warnings],events:a}}var w=(t,e)=>e===null?null:j(e,t.timeBasis),N=(t,e)=>[{key:`cgm_expected_${t}_n`,description:`Expected five-minute samples in the ${t} window.`,value:(n,i)=>i[e].expected},{key:`cgm_observed_${t}_n`,description:`Observed finite samples in the ${t} window.`,value:(n,i)=>i[e].observed},{key:`cgm_coverage_${t}_pct`,description:`Observed sample coverage percentage in the ${t} window.`,value:(n,i)=>i[e].pct}],z=[{key:"run_id",description:"Unique run identity.",value:t=>t.runId},{key:"analysis_version",description:"Meal analysis pipeline version.",value:t=>t.analysisVersion},{key:"detector_version",description:"Meal detector version.",value:t=>t.detectorVersion},{key:"metric_version",description:"Meal summary metric version.",value:t=>t.metricVersion},{key:"dataset_revision",description:"Source dataset revision.",value:t=>t.datasetRevision},{key:"exclusion_revision",description:"Implausible-bin exclusion revision.",value:t=>t.exclusionRevision},{key:"time_basis",description:"Declared timestamp basis.",value:t=>t.timeBasis},{key:"scope_kind",description:"Frozen whole-dataset or window scope.",value:t=>t.scope.kind},{key:"scope_start",description:"Frozen detection scope start.",value:t=>w(t,t.scope.startMs)},{key:"scope_end",description:"Frozen detection scope end.",value:t=>w(t,t.scope.endMs)},{key:"analysis_start",description:"First retained grid bin analyzed.",value:t=>w(t,t.analysisBounds.startMs)},{key:"analysis_end",description:"Last retained grid bin analyzed.",value:t=>w(t,t.analysisBounds.endMs)},{key:"target_meals_per_day",description:"Requested optimization target; blank for parameter-only runs.",value:t=>t.targetMealsPerDay},{key:"achieved_meals_per_day",description:"Detected count divided by observed analysis days.",value:t=>t.achievedMealsPerDay},{key:"analyzed_day_count",description:"Distinct source-calendar days with valid unmasked CGM.",value:t=>t.analyzedDayCount},{key:"run_detected_count",description:"Total events in the complete run.",value:t=>t.detectedCount},{key:"source_ids",description:"Pipe-separated retained source identifiers.",value:t=>t.sourceIds.join("|")},{key:"grid_warnings",description:"Pipe-separated run grid warnings.",value:t=>t.gridWarnings.join("|")},{key:"trigger_rate_mgdl_per_min",description:"Detector trigger-rate parameter.",value:t=>t.params.triggerRateMgdlPerMin},{key:"must_increase_mgdl",description:"Detector required-rise parameter.",value:t=>t.params.mustIncrease},{key:"num_consecutive_increase",description:"Detector increasing-step parameter.",value:t=>t.params.numConsecutiveIncrease},{key:"meal_blockout_minutes",description:"Detector event blackout parameter.",value:t=>t.params.mealBlockoutMinutes},{key:"confirm_window_minutes",description:"Detector confirmation-window parameter.",value:t=>t.params.confirmWindowMinutes??60},{key:"event_id",description:"Stable event identity within the dataset.",value:(t,e)=>e.eventId},{key:"meal_start",description:"Detected onset at the beginning of the triggering rise.",value:(t,e)=>w(t,e.t0)},{key:"t_confirm",description:"Detector confirmation time.",value:(t,e)=>w(t,e.tConfirm)},{key:"time_to_confirm_min",description:"Minutes from onset to confirmation.",value:(t,e)=>e.timeToConfirmMin},{key:"detector_t_peak",description:"Legacy detector peak time.",value:(t,e)=>w(t,e.tPeak)},{key:"detector_peak_mgdl",description:"Legacy detector peak glucose.",value:(t,e)=>e.peak},{key:"detector_peak_one_hour_mgdl",description:"Legacy detector peak minus onset glucose.",value:(t,e)=>e.peakOneHour},{key:"detector_total_auc_2h",description:"Legacy total-glucose AUC; not positive incremental AUC.",value:(t,e)=>e.area2h},{key:"trigger_index",description:"Trigger bin index in the frozen detection grid.",value:(t,e)=>e.triggerIndex},{key:"confirmation_index",description:"Confirmation bin index in the frozen detection grid.",value:(t,e)=>e.confirmationIndex},{key:"peak_index",description:"Detector peak bin index in the frozen detection grid.",value:(t,e)=>e.peakIndex},{key:"missing_streak_bins",description:"Missing deltas accepted in the increasing streak.",value:(t,e)=>e.missingStreakBins},{key:"g_baseline",description:"Mean finite glucose in minutes -30 through 0.",value:(t,e)=>e.gBaseline},{key:"baseline_observed_n",description:"Finite observations contributing to baseline.",value:(t,e)=>e.baselineObserved},{key:"g_peak",description:"Earliest maximum glucose in minutes 0 through 120.",value:(t,e)=>e.gPeak},{key:"peak_time",description:"Summary peak time.",value:(t,e)=>w(t,e.peakTime)},{key:"time_to_peak_min",description:"Minutes from onset to summary peak.",value:(t,e)=>e.timeToPeakMin},{key:"delta_peak",description:"Summary peak minus mean baseline.",value:(t,e)=>e.deltaPeak},{key:"delta_2h",description:"Nearest observed post-meal sample to +120 minus baseline.",value:(t,e)=>e.delta2h},{key:"sample_2h_time",description:"Actual sample used for delta_2h.",value:(t,e)=>w(t,e.sample2hTime)},{key:"sample_2h_offset_min",description:"Actual sample offset from +120 minutes.",value:(t,e)=>e.sample2hOffsetMin},{key:"approximate_2h_sample",description:"Whether delta_2h uses a non-exact sample.",value:(t,e)=>e.approximate2hSample},{key:"g_half",description:"Baseline plus half of peak rise.",value:(t,e)=>e.gHalf},{key:"time_to_half_min",description:"Minutes from onset to observed half-return.",value:(t,e)=>e.timeToHalfMin},{key:"peak_to_half_min",description:"Minutes from peak to observed half-return.",value:(t,e)=>e.peakToHalfMin},{key:"slope_up_mgdl_per_min",description:"OLS slope from onset through summary peak.",value:(t,e)=>e.slopeUpMgdlPerMin},{key:"slope_down_mgdl_per_min",description:"OLS slope from peak through half-return.",value:(t,e)=>e.slopeDownMgdlPerMin},{key:"slope_up_intercept",description:"OLS rising fit intercept.",value:(t,e)=>e.slopeUpFit?.intercept??null},{key:"slope_down_intercept",description:"OLS falling fit intercept.",value:(t,e)=>e.slopeDownFit?.intercept??null},{key:"returned_to_baseline_2h",description:"Observed at or below baseline after peak through 2h.",value:(t,e)=>e.returnedToBaseline2h},{key:"returned_to_baseline_4h",description:"Observed at or below baseline after peak through 4h.",value:(t,e)=>e.returnedToBaseline4h},{key:"time_back_to_baseline_min",description:"Minutes from onset to first observed baseline return.",value:(t,e)=>e.timeBackToBaselineMin},{key:"auc_pos_2h",description:"Positive incremental trapezoidal AUC through 2h.",value:(t,e)=>e.aucPositive2h},{key:"auc_pos_4h",description:"Cumulative positive incremental trapezoidal AUC through 4h.",value:(t,e)=>e.aucPositive4h},{key:"auc_integrated_2h_min",description:"Minutes represented by valid adjacent 2h AUC segments.",value:(t,e)=>e.aucIntegrated2hMin},{key:"auc_integrated_4h_min",description:"Minutes represented by valid adjacent 4h AUC segments.",value:(t,e)=>e.aucIntegrated4hMin},{key:"meal_time_above_140_pct",description:"Percent of observed 0-240 minute samples strictly above 140.",value:(t,e)=>e.timeAbove140Pct},{key:"meal_time_above_180_pct",description:"Percent of observed 0-240 minute samples strictly above 180.",value:(t,e)=>e.timeAbove180Pct},{key:"observed_post_samples_n",description:"Finite observed samples in minutes 0 through 240.",value:(t,e)=>e.observedPostSamples},{key:"ref_offset_min",description:"Nearest reported meal time minus detected onset.",value:(t,e)=>e.referenceOffsetMin},{key:"reference_time",description:"Nearest imported reference time.",value:(t,e)=>w(t,e.referenceTime)},{key:"reference_label",description:"Nearest imported reference annotation.",value:(t,e)=>e.referenceLabel},...N("baseline","coverageBaseline"),...N("post_2h","coveragePost2h"),...N("post_4h","coveragePost4h"),...N("full","coverageFull"),{key:"max_gap_minutes",description:"Longest run of missing expected five-minute bins.",value:(t,e)=>e.maxGapMinutes},{key:"truncated_before",description:"Dataset ends inside the expected pre-meal context.",value:(t,e)=>e.truncatedBefore},{key:"truncated_after",description:"Dataset ends inside the expected post-meal context.",value:(t,e)=>e.truncatedAfter},{key:"overlap_within_4h",description:"Another detected onset occurs in the next four hours.",value:(t,e)=>e.overlapWithin4h},{key:"event_warnings",description:"Pipe-separated detector and summary warnings.",value:(t,e)=>e.warnings.join("|")}];function le(t){if(t==null||typeof t=="number"&&!Number.isFinite(t))return"";const e=String(t);return/[",\r\n]/.test(e)?`"${e.replace(/"/g,'""')}"`:e}function Oe(t,e=t.events){const n=z.map(r=>le(r.key)).join(","),i=e.map(r=>z.map(s=>le(s.value(t,r))).join(","));return[n,...i].join(`\r
-`)}function Te(){return{primary:[],supplemental:null,grid:null,revision:0,latestGeneration:0}}function Re(t){const e=t.latestGeneration+1;return{state:{...t,latestGeneration:e},token:e}}function De(t,e){if(e.token!==t.latestGeneration)return t;const n={id:`${e.kind}-${e.token}`,name:e.name,text:e.text,kind:e.kind,format:e.format},i=e.kind==="primary"?e.merge?[...t.primary,n]:[n]:t.primary,r=e.kind==="supplemental"?n:e.kind==="primary"?null:t.supplemental,s=Y([...i,...r?[r]:[]]);return{...t,primary:i,supplemental:r,grid:s,revision:t.revision+1}}return he(V)})();
+"use strict";
+var MealAnalysis = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // src/meal-analysis/index.ts
+  var index_exports = {};
+  __export(index_exports, {
+    DEFAULT_MEAL_PARAMS: () => DEFAULT_MEAL_PARAMS,
+    MEAL_ANALYSIS_VERSION: () => MEAL_ANALYSIS_VERSION,
+    MEAL_BIN_MS: () => MEAL_BIN_MS,
+    MEAL_DETECTOR_VERSION: () => MEAL_DETECTOR_VERSION,
+    MEAL_EVENT_CSV_COLUMNS: () => MEAL_EVENT_CSV_COLUMNS,
+    MEAL_GRID_VERSION: () => MEAL_GRID_VERSION,
+    MEAL_METRIC_VERSION: () => MEAL_METRIC_VERSION,
+    MEAL_OPTIMIZATION_TOTAL: () => MEAL_OPTIMIZATION_TOTAL,
+    applyMealExclusions: () => applyMealExclusions,
+    beginMealSourceImport: () => beginMealSourceImport,
+    buildGridFromLegacyRows: () => buildGridFromLegacyRows,
+    buildMealEvents: () => buildMealEvents,
+    buildMealGrid: () => buildMealGrid,
+    buildOptimizedMealRun: () => buildOptimizedMealRun,
+    buildParameterMealRun: () => buildParameterMealRun,
+    commitMealSourceImport: () => commitMealSourceImport,
+    compareMealOptimizationRows: () => compareMealOptimizationRows,
+    createMealSourceState: () => createMealSourceState,
+    defaultMealOptimizationGrid: () => defaultMealOptimizationGrid,
+    detectLegacyRows: () => detectLegacyRows,
+    detectMeals: () => detectMeals,
+    detectionToLegacyResult: () => detectionToLegacyResult,
+    formatMealTimestamp: () => formatMealTimestamp,
+    gridForMealScope: () => gridForMealScope,
+    mealRunToCsv: () => mealRunToCsv,
+    optimizeMealParams: () => optimizeMealParams,
+    parseMealSource: () => parseMealSource,
+    parseMealTimestamp: () => parseMealTimestamp,
+    summarizeMeal: () => summarizeMeal
+  });
+
+  // src/meal-analysis/types.ts
+  var MEAL_BIN_MS = 5 * 6e4;
+  var MEAL_DETECTOR_VERSION = "meal-detector-v1";
+  var MEAL_GRID_VERSION = "meal-grid-v1";
+  var MEAL_METRIC_VERSION = "meal-metrics-v1";
+  var MEAL_ANALYSIS_VERSION = "meal-analysis-v1";
+
+  // src/anonymize/csv.ts
+  function parseCsv(csvText) {
+    const text = csvText.replace(/^\uFEFF/, "");
+    const records = [];
+    let record = [];
+    let field = "";
+    let inQuotes = false;
+    const pushField = () => {
+      record.push(field);
+      field = "";
+    };
+    const pushRecord = () => {
+      pushField();
+      records.push(record);
+      record = [];
+    };
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (inQuotes) {
+        if (char === '"') {
+          if (text[index + 1] === '"') {
+            field += '"';
+            index++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          field += char;
+        }
+        continue;
+      }
+      if (char === '"' && field.length === 0) {
+        inQuotes = true;
+      } else if (char === ",") {
+        pushField();
+      } else if (char === "\n") {
+        pushRecord();
+      } else if (char === "\r") {
+        if (text[index + 1] === "\n") {
+          index++;
+        }
+        pushRecord();
+      } else {
+        field += char;
+      }
+    }
+    if (inQuotes) {
+      throw new Error("CSV contains an unterminated quoted field.");
+    }
+    if (field.length > 0 || record.length > 0) {
+      pushRecord();
+    }
+    while (records.length > 0 && records[records.length - 1].every((cell) => cell === "")) {
+      records.pop();
+    }
+    if (records.length === 0) {
+      throw new Error("CSV is empty.");
+    }
+    const headers = records.shift().map((header) => header.trim());
+    if (headers.some((header) => header === "")) {
+      throw new Error("CSV contains an empty column name.");
+    }
+    const normalizedHeaders2 = headers.map((header) => header.toLowerCase());
+    if (new Set(normalizedHeaders2).size !== normalizedHeaders2.length) {
+      throw new Error("CSV contains duplicate column names.");
+    }
+    const rows = records.map((sourceRow, rowIndex) => {
+      if (sourceRow.length > headers.length) {
+        throw new Error(`CSV row ${rowIndex + 2} has more fields than the header.`);
+      }
+      return [...sourceRow, ...new Array(headers.length - sourceRow.length).fill("")];
+    });
+    return { headers, rows };
+  }
+
+  // src/meal-analysis/grid.ts
+  function parseDateParts(value) {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?$/.exec(value);
+    if (iso) return [Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4]), Number(iso[5]), Number(iso[6] ?? 0), Number((iso[7] ?? "").padEnd(3, "0") || 0)];
+    const clock = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)$/i.exec(value);
+    if (!clock) return null;
+    let hour = Number(clock[4]) % 12;
+    if (clock[7].toUpperCase() === "PM") hour += 12;
+    return [Number(clock[3]), Number(clock[1]), Number(clock[2]), hour, Number(clock[5]), Number(clock[6] ?? 0), 0];
+  }
+  function validParts(parts) {
+    const [year, month, day, hour, minute, second, millisecond] = parts;
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second;
+  }
+  function parseMealTimestamp(value) {
+    const normalized = value.trim();
+    const suffixMatch = /(Z|[+-]\d{2}:\d{2})$/i.exec(normalized);
+    const suffix = suffixMatch?.[1];
+    const base = suffix ? normalized.slice(0, -suffix.length) : normalized;
+    const parts = parseDateParts(base);
+    if (!parts || !validParts(parts)) throw new Error(`Invalid timestamp: ${value}`);
+    let time2 = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5], parts[6]);
+    if (suffix && suffix.toUpperCase() !== "Z") {
+      const offsetHours = Number(suffix.slice(1, 3));
+      const offsetMinutes = Number(suffix.slice(4, 6));
+      if (offsetHours > 14 || offsetMinutes > 59 || offsetHours === 14 && offsetMinutes !== 0) throw new Error(`Invalid timestamp offset: ${value}`);
+      const sign = suffix[0] === "-" ? -1 : 1;
+      time2 -= sign * (offsetHours * 60 + offsetMinutes) * 6e4;
+    }
+    return { time: time2, basis: suffix ? "utc" : "local_unspecified" };
+  }
+  function formatMealTimestamp(time2, basis) {
+    const iso = new Date(time2).toISOString();
+    return basis === "utc" ? iso : iso.slice(0, 19);
+  }
+  function normalizedHeaders(headers) {
+    return headers.map((header) => header.replace(/^\uFEFF/, "").trim().toLowerCase());
+  }
+  function findHeaderRow(text, format) {
+    if (format !== "libre") {
+      const table2 = parseCsv(text);
+      return { headers: normalizedHeaders(table2.headers), rows: table2.rows, headerRow: 1 };
+    }
+    const lines = text.split(/\r?\n/);
+    const index = lines.findIndex((line) => {
+      const normalized = line.toLowerCase();
+      return normalized.includes("device timestamp") && normalized.includes("record type") && normalized.includes("historic glucose mg/dl");
+    });
+    if (index < 0) throw new Error("Libre headers were not found.");
+    const table = parseCsv(lines.slice(index).join("\n"));
+    return { headers: normalizedHeaders(table.headers), rows: table.rows, headerRow: index + 1 };
+  }
+  function requiredIndex(headers, name, source) {
+    const index = headers.indexOf(name);
+    if (index < 0) throw new Error(`${source.name}: missing ${name} column.`);
+    return index;
+  }
+  function addCgm(source, output, row, timestampText, valueText) {
+    let parsed;
+    try {
+      parsed = parseMealTimestamp(timestampText);
+    } catch {
+      throw new Error(`${source.name}, row ${row}: invalid CGM timestamp.`);
+    }
+    if (output.basis && output.basis !== parsed.basis) throw new Error(`${source.name}: mixed timestamp bases.`);
+    output.basis = parsed.basis;
+    const numeric = valueText.trim() && Number.isFinite(Number(valueText)) && Number(valueText) > 0 ? Number(valueText) : null;
+    output.cgm.push({
+      sourceId: source.id,
+      sourceName: source.name,
+      row,
+      sourceTimestamp: timestampText,
+      time: parsed.time,
+      value: numeric,
+      includedInAnalysis: true
+    });
+  }
+  function addReference(source, output, row, timestampText, label) {
+    let parsed;
+    try {
+      parsed = parseMealTimestamp(timestampText);
+    } catch {
+      return;
+    }
+    if (output.basis && output.basis !== parsed.basis) throw new Error(`${source.name}: mixed timestamp bases.`);
+    output.basis = parsed.basis;
+    output.references.push({ sourceId: source.id, sourceName: source.name, row, sourceTimestamp: timestampText, time: parsed.time, label });
+  }
+  function parseMealSource(source) {
+    const { headers, rows, headerRow } = findHeaderRow(source.text, source.format);
+    const output = { basis: null, cgm: [], references: [] };
+    if (source.format === "dexcom") {
+      const timestamp = requiredIndex(headers, "timestamp (yyyy-mm-ddthh:mm:ss)", source);
+      const glucose = requiredIndex(headers, "glucose value (mg/dl)", source);
+      const eventType = requiredIndex(headers, "event type", source);
+      rows.forEach((row, index) => {
+        if ((row[eventType] ?? "").trim().toLowerCase() === "egv") addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[glucose] ?? "");
+      });
+    } else if (source.format === "libre") {
+      const timestamp = requiredIndex(headers, "device timestamp", source);
+      const recordType = requiredIndex(headers, "record type", source);
+      const historic = requiredIndex(headers, "historic glucose mg/dl", source);
+      const scan = headers.indexOf("scan glucose mg/dl");
+      rows.forEach((row, index) => {
+        const type = (row[recordType] ?? "").trim();
+        if (type === "0") addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[historic] ?? "");
+        else if (type === "1" && scan >= 0) addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[scan] ?? "");
+      });
+    } else if (source.format === "simple") {
+      const timestamp = requiredIndex(headers, "measurement_time", source);
+      const glucose = requiredIndex(headers, "blood_sugar", source);
+      rows.forEach((row, index) => addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[glucose] ?? ""));
+    } else {
+      const series = requiredIndex(headers, "series", source);
+      const timestamp = requiredIndex(headers, "datetime_local", source);
+      const value = requiredIndex(headers, "value", source);
+      const annotationKind = headers.indexOf("annotation_kind");
+      const mealType = headers.indexOf("meal_type");
+      rows.forEach((row, index) => {
+        const category = (row[series] ?? "").trim().toLowerCase();
+        if (source.kind === "primary" && category === "cgm") addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[value] ?? "");
+        const annotation = annotationKind >= 0 ? (row[annotationKind] ?? "").trim().toLowerCase() : "";
+        if (category.includes("meal announcement") || annotation === "meal") {
+          addReference(source, output, headerRow + index + 1, row[timestamp] ?? "", mealType >= 0 ? row[mealType] ?? "Reported meal" : "Reported meal");
+        }
+      });
+    }
+    return output;
+  }
+  function dayKey(time2) {
+    return new Date(time2).toISOString().slice(0, 10);
+  }
+  function buildMealGrid(sources) {
+    if (!sources.some((source) => source.kind === "primary")) throw new Error("Load a primary CGM source.");
+    const parsed = sources.map(parseMealSource);
+    const bases = new Set(parsed.map((result) => result.basis).filter((basis) => basis !== null));
+    if (bases.size > 1) throw new Error("Cannot mix offset-free and offset-aware timestamps.");
+    const timeBasis = [...bases][0];
+    if (!timeBasis) throw new Error("No CGM observations found.");
+    const observations = parsed.flatMap((result) => result.cgm).sort((a, b) => a.time - b.time || a.row - b.row);
+    if (!observations.length) throw new Error("No CGM observations found.");
+    const start = Math.floor(observations[0].time / MEAL_BIN_MS) * MEAL_BIN_MS;
+    const end = Math.floor(observations[observations.length - 1].time / MEAL_BIN_MS) * MEAL_BIN_MS;
+    const bins = Array.from({ length: (end - start) / MEAL_BIN_MS + 1 }, (_, index) => ({
+      time: start + index * MEAL_BIN_MS,
+      glucose: null,
+      observations: [],
+      warnings: []
+    }));
+    observations.forEach((observation) => bins[Math.floor((observation.time - start) / MEAL_BIN_MS)].observations.push(observation));
+    let duplicateObservationCount = 0;
+    let conflictingBinCount = 0;
+    let invalidObservationCount = 0;
+    for (const bin of bins) {
+      const unique = /* @__PURE__ */ new Map();
+      for (const observation of bin.observations) {
+        if (observation.value === null) {
+          invalidObservationCount++;
+          bin.warnings.push("invalid_cgm_observation");
+          continue;
+        }
+        const identity = JSON.stringify([observation.time, observation.value]);
+        if (unique.has(identity)) {
+          observation.includedInAnalysis = false;
+          duplicateObservationCount++;
+          bin.warnings.push("duplicate_cgm_observation");
+        } else unique.set(identity, observation);
+      }
+      const valid = [...unique.values()];
+      if (new Set(valid.map((row) => row.value)).size > 1) {
+        conflictingBinCount++;
+        bin.warnings.push("conflicting_cgm_observations");
+      }
+      if (valid.length) bin.glucose = valid.reduce((sum, row) => sum + row.value, 0) / valid.length;
+      bin.warnings = [...new Set(bin.warnings)];
+    }
+    const warnings = /* @__PURE__ */ new Set();
+    if (duplicateObservationCount) warnings.add("duplicate_cgm_observations_counted_once");
+    if (conflictingBinCount) warnings.add("conflicting_cgm_observations_averaged");
+    if (invalidObservationCount) warnings.add("invalid_cgm_observations_excluded");
+    if (timeBasis === "local_unspecified") warnings.add("timezone_unspecified_wall_clock_arithmetic");
+    return {
+      gridVersion: MEAL_GRID_VERSION,
+      exclusionRevision: 0,
+      timeBasis,
+      sourceIds: sources.map((source) => source.id),
+      bins,
+      references: parsed.flatMap((result) => result.references).sort((a, b) => a.time - b.time),
+      validDayKeys: [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => dayKey(bin.time)))],
+      warnings: [...warnings],
+      duplicateObservationCount,
+      conflictingBinCount,
+      invalidObservationCount
+    };
+  }
+  function applyMealExclusions(grid, excludedTimes, exclusionRevision) {
+    const excluded = new Set(excludedTimes);
+    const bins = grid.bins.map((bin) => excluded.has(bin.time) ? { ...bin, glucose: null, warnings: [.../* @__PURE__ */ new Set([...bin.warnings, "excluded_implausible_bin"])] } : bin);
+    return {
+      ...grid,
+      exclusionRevision,
+      bins,
+      validDayKeys: [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => dayKey(bin.time)))]
+    };
+  }
+
+  // src/meal-analysis/detect.ts
+  var DEFAULT_MEAL_PARAMS = {
+    triggerRateMgdlPerMin: 1,
+    mustIncrease: 30,
+    mealBlockoutMinutes: 120,
+    numConsecutiveIncrease: 3,
+    confirmWindowMinutes: 60
+  };
+  function validateParams(params) {
+    if (!Number.isFinite(params.triggerRateMgdlPerMin) || params.triggerRateMgdlPerMin < 0 || !Number.isFinite(params.mustIncrease) || params.mustIncrease < 0 || !Number.isFinite(params.mealBlockoutMinutes) || params.mealBlockoutMinutes < 0 || !Number.isInteger(params.numConsecutiveIncrease) || params.numConsecutiveIncrease < 1 || !Number.isFinite(params.confirmWindowMinutes ?? 60) || (params.confirmWindowMinutes ?? 60) < 0) {
+      throw new Error("Meal detector parameters are invalid.");
+    }
+  }
+  function detectMeals(grid, params = DEFAULT_MEAL_PARAMS) {
+    validateParams(params);
+    const bins = grid.bins;
+    if (bins.length < 3) return [];
+    const glucose = bins.map((bin) => bin.glucose);
+    const deltas = glucose.map((value, index) => index > 0 && value !== null && glucose[index - 1] !== null ? value - glucose[index - 1] : null);
+    const confirmBins = Math.floor((params.confirmWindowMinutes ?? 60) / 5);
+    const blackoutBins = Math.max(1, Math.round(params.mealBlockoutMinutes / 5));
+    const results = [];
+    let nextAllowedIndex = 1;
+    for (let index = 1; index < bins.length; index++) {
+      if (index < nextAllowedIndex) continue;
+      const delta = deltas[index];
+      if (delta === null || delta / 5 < params.triggerRateMgdlPerMin) continue;
+      if (index + params.numConsecutiveIncrease - 1 >= bins.length) continue;
+      let streakAccepted = true;
+      let missingStreakBins = 0;
+      for (let streakIndex = index; streakIndex < index + params.numConsecutiveIncrease; streakIndex++) {
+        const streakDelta = deltas[streakIndex];
+        if (streakDelta === null) missingStreakBins++;
+        else if (streakDelta <= 0) {
+          streakAccepted = false;
+          break;
+        }
+      }
+      if (!streakAccepted) continue;
+      const onsetIndex = index - 1;
+      const baseline = glucose[onsetIndex];
+      if (baseline === null) continue;
+      const confirmationEnd = Math.min(bins.length - 1, index + confirmBins);
+      let confirmationIndex = -1;
+      for (let candidate = index; candidate <= confirmationEnd; candidate++) {
+        if (glucose[candidate] !== null && glucose[candidate] - baseline >= params.mustIncrease) {
+          confirmationIndex = candidate;
+          break;
+        }
+      }
+      if (confirmationIndex < 0) continue;
+      const peakEnd = Math.min(bins.length - 1, onsetIndex + confirmBins + 12);
+      let peakIndex = onsetIndex;
+      let peak = baseline;
+      for (let candidate = onsetIndex; candidate <= peakEnd; candidate++) {
+        if (glucose[candidate] !== null && glucose[candidate] > peak) {
+          peak = glucose[candidate];
+          peakIndex = candidate;
+        }
+      }
+      const areaEnd = Math.min(bins.length - 1, onsetIndex + 24);
+      let area2h = 0;
+      for (let candidate = onsetIndex + 1; candidate <= areaEnd; candidate++) {
+        const left = glucose[candidate - 1];
+        const right = glucose[candidate];
+        if (left !== null && right !== null) area2h += (left + right) * 0.5 * 5;
+      }
+      const warnings = missingStreakBins ? ["missing_observation_in_accepted_streak"] : [];
+      results.push({
+        detectorVersion: MEAL_DETECTOR_VERSION,
+        timestamp: bins[onsetIndex].time,
+        t0: bins[onsetIndex].time,
+        tConfirm: bins[confirmationIndex].time,
+        timeToConfirmMin: (bins[confirmationIndex].time - bins[onsetIndex].time) / 6e4,
+        tPeak: bins[peakIndex].time,
+        peak,
+        peakOneHour: peak - baseline,
+        area2h,
+        triggerIndex: index,
+        confirmationIndex,
+        peakIndex,
+        missingStreakBins,
+        warnings
+      });
+      nextAllowedIndex = onsetIndex + blackoutBins;
+    }
+    return results;
+  }
+  function buildGridFromLegacyRows(rows) {
+    const parsed = rows.map((row, index) => ({
+      time: new Date(row.Timestamp).getTime(),
+      value: Number.isFinite(Number(row.GlucoseValue)) ? Number(row.GlucoseValue) : null,
+      index
+    })).filter((row) => Number.isFinite(row.time)).sort((a, b) => a.time - b.time);
+    if (!parsed.length) return { gridVersion: "legacy-worker-grid-v1", exclusionRevision: 0, timeBasis: "utc", sourceIds: ["legacy"], bins: [], references: [], validDayKeys: [], warnings: [], duplicateObservationCount: 0, conflictingBinCount: 0, invalidObservationCount: 0 };
+    const start = Math.floor(parsed[0].time / MEAL_BIN_MS) * MEAL_BIN_MS;
+    const end = Math.ceil(parsed[parsed.length - 1].time / MEAL_BIN_MS) * MEAL_BIN_MS;
+    const bins = Array.from({ length: (end - start) / MEAL_BIN_MS + 1 }, (_, index) => ({ time: start + index * MEAL_BIN_MS, glucose: null, observations: [], warnings: [] }));
+    const grouped = /* @__PURE__ */ new Map();
+    for (const row of parsed) {
+      if (row.value === null) continue;
+      const index = Math.floor((row.time - start) / MEAL_BIN_MS);
+      const values = grouped.get(index) ?? [];
+      values.push(row.value);
+      grouped.set(index, values);
+    }
+    grouped.forEach((values, index) => {
+      bins[index].glucose = values.reduce((sum, value) => sum + value, 0) / values.length;
+    });
+    return {
+      gridVersion: "legacy-worker-grid-v1",
+      exclusionRevision: 0,
+      timeBasis: "utc",
+      sourceIds: ["legacy"],
+      bins,
+      references: [],
+      validDayKeys: [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => new Date(bin.time).toISOString().slice(0, 10)))],
+      warnings: [],
+      duplicateObservationCount: 0,
+      conflictingBinCount: 0,
+      invalidObservationCount: 0
+    };
+  }
+  function detectionToLegacyResult(event, formatTime = (time2) => new Date(time2).toISOString()) {
+    const timestamp = formatTime(event.t0);
+    return {
+      Timestamp: timestamp,
+      t0: timestamp,
+      t_confirm: formatTime(event.tConfirm),
+      time_to_confirm_min: event.timeToConfirmMin,
+      t_peak: formatTime(event.tPeak),
+      peak: event.peak,
+      peakOneHour: event.peakOneHour,
+      area_2h: event.area2h
+    };
+  }
+  function detectLegacyRows(rows, params) {
+    const sourceTimes = new Map(rows.map((row) => [new Date(row.Timestamp).getTime(), row.Timestamp]));
+    const formatTime = (time2) => sourceTimes.get(time2) ?? new Date(time2).toISOString();
+    return detectMeals(buildGridFromLegacyRows(rows), params).map((event) => detectionToLegacyResult(event, formatTime));
+  }
+
+  // src/meal-analysis/summarize.ts
+  function coverage(rows, start, end) {
+    const expected = Math.floor((end - start) / 5) + 1;
+    const observed = rows.filter((row) => row.minute >= start && row.minute <= end && row.glucose !== null).length;
+    return { expected, observed, pct: expected ? observed / expected * 100 : 0 };
+  }
+  function mean(values) {
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  }
+  function fitLinear(rows) {
+    const points = rows.filter((row) => row.glucose !== null);
+    if (points.length < 2 || new Set(points.map((point) => point.minute)).size < 2) return null;
+    const meanX = points.reduce((sum, point) => sum + point.minute, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.glucose, 0) / points.length;
+    const denominator = points.reduce((sum, point) => sum + (point.minute - meanX) ** 2, 0);
+    if (!denominator) return null;
+    const slope = points.reduce((sum, point) => sum + (point.minute - meanX) * (point.glucose - meanY), 0) / denominator;
+    return { slope, intercept: meanY - slope * meanX, startMinute: points[0].minute, endMinute: points[points.length - 1].minute };
+  }
+  function integratePositive(rows, baseline, endMinute) {
+    let area = 0;
+    let minutes = 0;
+    for (let index = 1; index < rows.length; index++) {
+      const left = rows[index - 1];
+      const right = rows[index];
+      if (left.minute < 0 || right.minute > endMinute || left.glucose === null || right.glucose === null) continue;
+      const width = right.minute - left.minute;
+      if (width <= 0 || width > 5.000001) continue;
+      area += (Math.max(left.glucose - baseline, 0) + Math.max(right.glucose - baseline, 0)) * 0.5 * width;
+      minutes += width;
+    }
+    return { area: minutes > 0 ? area : null, minutes };
+  }
+  function percentAbove(rows, threshold) {
+    const values = rows.filter((row) => row.minute >= 0 && row.minute <= 240 && row.glucose !== null).map((row) => row.glucose);
+    return values.length ? values.filter((value) => value > threshold).length / values.length * 100 : null;
+  }
+  function longestMissingRun(rows) {
+    let longest = 0;
+    let current = 0;
+    for (const row of rows) {
+      if (row.glucose === null) {
+        current += 5;
+        longest = Math.max(longest, current);
+      } else current = 0;
+    }
+    return longest;
+  }
+  function summarizeMeal(grid, detection) {
+    const expectedStart = detection.t0 - 30 * 6e4;
+    const expectedEnd = detection.t0 + 240 * 6e4;
+    const rows = [];
+    for (let time2 = expectedStart; time2 <= expectedEnd; time2 += MEAL_BIN_MS) {
+      const index = Math.round((time2 - grid.bins[0].time) / MEAL_BIN_MS);
+      rows.push({
+        minute: (time2 - detection.t0) / 6e4,
+        time: time2,
+        glucose: index >= 0 && index < grid.bins.length ? grid.bins[index].glucose : null
+      });
+    }
+    const baselineRows = rows.filter((row) => row.minute >= -30 && row.minute <= 0 && row.glucose !== null);
+    const baseline = mean(baselineRows.map((row) => row.glucose));
+    const postRows = rows.filter((row) => row.minute >= 0 && row.minute <= 240);
+    const observedPost = postRows.filter((row) => row.glucose !== null);
+    const coverageBaseline = coverage(rows, -30, 0);
+    const coveragePost2h = coverage(rows, 0, 120);
+    const coveragePost4h = coverage(rows, 0, 240);
+    const coverageFull = coverage(rows, -30, 240);
+    const warnings = [];
+    if (coverageBaseline.observed < coverageBaseline.expected) warnings.push("incomplete_baseline_coverage");
+    if (coveragePost2h.observed < coveragePost2h.expected) warnings.push("incomplete_2h_coverage");
+    if (coveragePost4h.observed < coveragePost4h.expected) warnings.push("incomplete_4h_coverage");
+    const truncatedBefore = expectedStart < grid.bins[0].time;
+    const truncatedAfter = expectedEnd > grid.bins[grid.bins.length - 1].time;
+    if (truncatedBefore) warnings.push("dataset_truncated_before_meal");
+    if (truncatedAfter) warnings.push("dataset_truncated_after_meal");
+    let peakRow = null;
+    let nearest2h = null;
+    let halfRow = null;
+    let returnRow = null;
+    let gHalf = null;
+    let upFit = null;
+    let downFit = null;
+    let auc2 = { area: null, minutes: 0 };
+    let auc4 = { area: null, minutes: 0 };
+    if (baseline !== null) {
+      const peakRows = observedPost.filter((row) => row.minute <= 120);
+      for (const row of peakRows) {
+        if (!peakRow || row.glucose > peakRow.glucose) peakRow = row;
+      }
+      for (const row of observedPost) {
+        if (!nearest2h) nearest2h = row;
+        else {
+          const difference = Math.abs(row.minute - 120) - Math.abs(nearest2h.minute - 120);
+          if (difference < 0 || difference === 0 && row.minute < nearest2h.minute) nearest2h = row;
+        }
+      }
+      if (peakRow) {
+        gHalf = baseline + (peakRow.glucose - baseline) / 2;
+        halfRow = observedPost.find((row) => row.minute > peakRow.minute && row.glucose <= gHalf) ?? null;
+        returnRow = observedPost.find((row) => row.minute > peakRow.minute && row.glucose <= baseline) ?? null;
+        upFit = fitLinear(postRows.filter((row) => row.minute <= peakRow.minute));
+        if (halfRow) downFit = fitLinear(postRows.filter((row) => row.minute >= peakRow.minute && row.minute <= halfRow.minute));
+      }
+      auc2 = integratePositive(postRows, baseline, 120);
+      auc4 = integratePositive(postRows, baseline, 240);
+    } else warnings.push("baseline_unavailable");
+    if (nearest2h && nearest2h.minute !== 120) warnings.push("approximate_2h_sample");
+    if (auc2.minutes < 120) warnings.push("incomplete_2h_auc");
+    if (auc4.minutes < 240) warnings.push("incomplete_4h_auc");
+    const nearestReference = grid.references.reduce((best, reference) => !best || Math.abs(reference.time - detection.t0) < Math.abs(best.time - detection.t0) ? reference : best, null);
+    const returnCandidates2h = peakRow ? observedPost.filter((row) => row.minute > peakRow.minute && row.minute <= 120) : [];
+    const returnCandidates4h = peakRow ? observedPost.filter((row) => row.minute > peakRow.minute && row.minute <= 240) : [];
+    return {
+      metricVersion: MEAL_METRIC_VERSION,
+      gBaseline: baseline,
+      baselineObserved: baselineRows.length,
+      gPeak: peakRow?.glucose ?? null,
+      peakTime: peakRow?.time ?? null,
+      timeToPeakMin: peakRow?.minute ?? null,
+      deltaPeak: baseline !== null && peakRow ? peakRow.glucose - baseline : null,
+      delta2h: baseline !== null && nearest2h ? nearest2h.glucose - baseline : null,
+      sample2hTime: nearest2h?.time ?? null,
+      sample2hOffsetMin: nearest2h ? nearest2h.minute - 120 : null,
+      approximate2hSample: nearest2h ? nearest2h.minute !== 120 : null,
+      gHalf,
+      timeToHalfMin: halfRow?.minute ?? null,
+      peakToHalfMin: peakRow && halfRow ? halfRow.minute - peakRow.minute : null,
+      slopeUpMgdlPerMin: upFit?.slope ?? null,
+      slopeDownMgdlPerMin: downFit?.slope ?? null,
+      slopeUpFit: upFit,
+      slopeDownFit: downFit,
+      returnedToBaseline2h: peakRow && returnCandidates2h.length ? returnCandidates2h.some((row) => row.glucose <= baseline) : null,
+      returnedToBaseline4h: peakRow && returnCandidates4h.length ? returnCandidates4h.some((row) => row.glucose <= baseline) : null,
+      timeBackToBaselineMin: returnRow?.minute ?? null,
+      aucPositive2h: auc2.area,
+      aucPositive4h: auc4.area,
+      aucIntegrated2hMin: auc2.minutes,
+      aucIntegrated4hMin: auc4.minutes,
+      timeAbove140Pct: percentAbove(postRows, 140),
+      timeAbove180Pct: percentAbove(postRows, 180),
+      observedPostSamples: observedPost.length,
+      referenceOffsetMin: nearestReference ? (nearestReference.time - detection.t0) / 6e4 : null,
+      referenceTime: nearestReference?.time ?? null,
+      referenceLabel: nearestReference?.label ?? null,
+      coverageBaseline,
+      coveragePost2h,
+      coveragePost4h,
+      coverageFull,
+      maxGapMinutes: longestMissingRun(rows),
+      truncatedBefore,
+      truncatedAfter,
+      warnings: [...new Set(warnings)]
+    };
+  }
+  function buildMealEvents(grid, detections) {
+    return detections.map((detection, index) => {
+      const summary = summarizeMeal(grid, detection);
+      return {
+        ...detection,
+        ...summary,
+        warnings: [.../* @__PURE__ */ new Set([...detection.warnings, ...summary.warnings])],
+        eventId: `${detection.detectorVersion}:${detection.t0}`,
+        overlapWithin4h: detections.some((other, otherIndex) => otherIndex !== index && other.t0 > detection.t0 && other.t0 <= detection.t0 + 240 * 6e4)
+      };
+    });
+  }
+
+  // src/meal-analysis/optimize.ts
+  var MEAL_OPTIMIZATION_TOTAL = 800;
+  function defaultMealOptimizationGrid() {
+    const result = [];
+    for (let triggerStep = 0; triggerStep <= 9; triggerStep++) {
+      for (let mustIncrease = 10; mustIncrease <= 55; mustIncrease += 5) {
+        for (let numConsecutiveIncrease = 1; numConsecutiveIncrease <= 8; numConsecutiveIncrease++) {
+          result.push({
+            triggerRateMgdlPerMin: Number((triggerStep * 0.2).toFixed(1)),
+            mustIncrease,
+            numConsecutiveIncrease,
+            mealBlockoutMinutes: 120,
+            confirmWindowMinutes: 60
+          });
+        }
+      }
+    }
+    return result;
+  }
+  function compareMealOptimizationRows(left, right) {
+    return right.score - left.score || left.mustIncrease - right.mustIncrease || left.numConsecutiveIncrease - right.numConsecutiveIncrease || left.triggerRateMgdlPerMin - right.triggerRateMgdlPerMin || left.mealBlockoutMinutes - right.mealBlockoutMinutes;
+  }
+  function dayKey2(time2) {
+    return new Date(time2).toISOString().slice(0, 10);
+  }
+  function gridForMealScope(grid, scope) {
+    const bins = grid.bins.filter((bin) => bin.time >= scope.startMs && bin.time <= scope.endMs);
+    const validDayKeys = [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => dayKey2(bin.time)))];
+    return { ...grid, bins, validDayKeys };
+  }
+  function optimizeMealParams(grid, options) {
+    if (!Number.isFinite(options.targetMealsPerDay) || options.targetMealsPerDay <= 0) {
+      throw new Error("Target meals per day must be a positive finite number.");
+    }
+    const analyzedDayCount = grid.validDayKeys.length;
+    if (!grid.bins.length || analyzedDayCount < 1) throw new Error("The meal analysis scope contains no valid CGM observations.");
+    const candidates = defaultMealOptimizationGrid();
+    const rows = [];
+    for (let index = 0; index < candidates.length; index++) {
+      if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
+      const params = candidates[index];
+      const detectedCount = detectMeals(grid, params).length;
+      const achievedMealsPerDay = detectedCount / analyzedDayCount;
+      const countPenalty = ((achievedMealsPerDay - options.targetMealsPerDay) / options.targetMealsPerDay) ** 2;
+      rows.push({ ...params, detectedCount, achievedMealsPerDay, countPenalty, score: countPenalty === 0 ? 0 : -countPenalty });
+      options.onProgress?.({ evaluated: index + 1, total: candidates.length });
+    }
+    rows.sort(compareMealOptimizationRows);
+    return { best: rows[0], rows, analyzedDayCount };
+  }
+  function buildOptimizedMealRun(fullGrid, options) {
+    const detectionGrid = gridForMealScope(fullGrid, options.scope);
+    const optimization = optimizeMealParams(detectionGrid, options);
+    if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
+    const params = {
+      triggerRateMgdlPerMin: optimization.best.triggerRateMgdlPerMin,
+      mustIncrease: optimization.best.mustIncrease,
+      mealBlockoutMinutes: optimization.best.mealBlockoutMinutes,
+      numConsecutiveIncrease: optimization.best.numConsecutiveIncrease,
+      confirmWindowMinutes: optimization.best.confirmWindowMinutes
+    };
+    const run = buildParameterMealRun(fullGrid, { ...options, params, targetMealsPerDay: null });
+    return { run: { ...run, targetMealsPerDay: options.targetMealsPerDay }, optimization };
+  }
+  function buildParameterMealRun(fullGrid, options) {
+    const detectionGrid = gridForMealScope(fullGrid, options.scope);
+    const analyzedDayCount = detectionGrid.validDayKeys.length;
+    if (!detectionGrid.bins.length || analyzedDayCount < 1) throw new Error("The meal analysis scope contains no valid CGM observations.");
+    const params = { ...options.params };
+    const detections = detectMeals(detectionGrid, params);
+    const events = buildMealEvents(fullGrid, detections);
+    const run = {
+      analysisVersion: MEAL_ANALYSIS_VERSION,
+      detectorVersion: detections[0]?.detectorVersion ?? "meal-detector-v1",
+      metricVersion: MEAL_METRIC_VERSION,
+      datasetRevision: options.datasetRevision,
+      exclusionRevision: options.exclusionRevision,
+      runId: options.runId,
+      timeBasis: fullGrid.timeBasis,
+      scope: { ...options.scope },
+      targetMealsPerDay: options.targetMealsPerDay ?? null,
+      params,
+      analyzedDayCount,
+      detectedCount: events.length,
+      achievedMealsPerDay: events.length / analyzedDayCount,
+      sourceIds: [...fullGrid.sourceIds],
+      analysisBounds: { startMs: detectionGrid.bins[0].time, endMs: detectionGrid.bins[detectionGrid.bins.length - 1].time },
+      gridWarnings: [...fullGrid.warnings],
+      events
+    };
+    return run;
+  }
+
+  // src/meal-analysis/export.ts
+  var time = (run, value) => value === null ? null : formatMealTimestamp(value, run.timeBasis);
+  var coverageColumns = (prefix, key) => [
+    { key: `cgm_expected_${prefix}_n`, description: `Expected five-minute samples in the ${prefix} window.`, value: (_run, event) => event[key].expected },
+    { key: `cgm_observed_${prefix}_n`, description: `Observed finite samples in the ${prefix} window.`, value: (_run, event) => event[key].observed },
+    { key: `cgm_coverage_${prefix}_pct`, description: `Observed sample coverage percentage in the ${prefix} window.`, value: (_run, event) => event[key].pct }
+  ];
+  var MEAL_EVENT_CSV_COLUMNS = [
+    { key: "run_id", description: "Unique run identity.", value: (run) => run.runId },
+    { key: "analysis_version", description: "Meal analysis pipeline version.", value: (run) => run.analysisVersion },
+    { key: "detector_version", description: "Meal detector version.", value: (run) => run.detectorVersion },
+    { key: "metric_version", description: "Meal summary metric version.", value: (run) => run.metricVersion },
+    { key: "dataset_revision", description: "Source dataset revision.", value: (run) => run.datasetRevision },
+    { key: "exclusion_revision", description: "Implausible-bin exclusion revision.", value: (run) => run.exclusionRevision },
+    { key: "time_basis", description: "Declared timestamp basis.", value: (run) => run.timeBasis },
+    { key: "scope_kind", description: "Frozen whole-dataset or window scope.", value: (run) => run.scope.kind },
+    { key: "scope_start", description: "Frozen detection scope start.", value: (run) => time(run, run.scope.startMs) },
+    { key: "scope_end", description: "Frozen detection scope end.", value: (run) => time(run, run.scope.endMs) },
+    { key: "analysis_start", description: "First retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.startMs) },
+    { key: "analysis_end", description: "Last retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.endMs) },
+    { key: "target_meals_per_day", description: "Requested optimization target; blank for parameter-only runs.", value: (run) => run.targetMealsPerDay },
+    { key: "achieved_meals_per_day", description: "Detected count divided by observed analysis days.", value: (run) => run.achievedMealsPerDay },
+    { key: "analyzed_day_count", description: "Distinct source-calendar days with valid unmasked CGM.", value: (run) => run.analyzedDayCount },
+    { key: "run_detected_count", description: "Total events in the complete run.", value: (run) => run.detectedCount },
+    { key: "source_ids", description: "Pipe-separated retained source identifiers.", value: (run) => run.sourceIds.join("|") },
+    { key: "grid_warnings", description: "Pipe-separated run grid warnings.", value: (run) => run.gridWarnings.join("|") },
+    { key: "trigger_rate_mgdl_per_min", description: "Detector trigger-rate parameter.", value: (run) => run.params.triggerRateMgdlPerMin },
+    { key: "must_increase_mgdl", description: "Detector required-rise parameter.", value: (run) => run.params.mustIncrease },
+    { key: "num_consecutive_increase", description: "Detector increasing-step parameter.", value: (run) => run.params.numConsecutiveIncrease },
+    { key: "meal_blockout_minutes", description: "Detector event blackout parameter.", value: (run) => run.params.mealBlockoutMinutes },
+    { key: "confirm_window_minutes", description: "Detector confirmation-window parameter.", value: (run) => run.params.confirmWindowMinutes ?? 60 },
+    { key: "event_id", description: "Stable event identity within the dataset.", value: (_run, event) => event.eventId },
+    { key: "meal_start", description: "Detected onset at the beginning of the triggering rise.", value: (run, event) => time(run, event.t0) },
+    { key: "t_confirm", description: "Detector confirmation time.", value: (run, event) => time(run, event.tConfirm) },
+    { key: "time_to_confirm_min", description: "Minutes from onset to confirmation.", value: (_run, event) => event.timeToConfirmMin },
+    { key: "detector_t_peak", description: "Legacy detector peak time.", value: (run, event) => time(run, event.tPeak) },
+    { key: "detector_peak_mgdl", description: "Legacy detector peak glucose.", value: (_run, event) => event.peak },
+    { key: "detector_peak_one_hour_mgdl", description: "Legacy detector peak minus onset glucose.", value: (_run, event) => event.peakOneHour },
+    { key: "detector_total_auc_2h", description: "Legacy total-glucose AUC; not positive incremental AUC.", value: (_run, event) => event.area2h },
+    { key: "trigger_index", description: "Trigger bin index in the frozen detection grid.", value: (_run, event) => event.triggerIndex },
+    { key: "confirmation_index", description: "Confirmation bin index in the frozen detection grid.", value: (_run, event) => event.confirmationIndex },
+    { key: "peak_index", description: "Detector peak bin index in the frozen detection grid.", value: (_run, event) => event.peakIndex },
+    { key: "missing_streak_bins", description: "Missing deltas accepted in the increasing streak.", value: (_run, event) => event.missingStreakBins },
+    { key: "g_baseline", description: "Mean finite glucose in minutes -30 through 0.", value: (_run, event) => event.gBaseline },
+    { key: "baseline_observed_n", description: "Finite observations contributing to baseline.", value: (_run, event) => event.baselineObserved },
+    { key: "g_peak", description: "Earliest maximum glucose in minutes 0 through 120.", value: (_run, event) => event.gPeak },
+    { key: "peak_time", description: "Summary peak time.", value: (run, event) => time(run, event.peakTime) },
+    { key: "time_to_peak_min", description: "Minutes from onset to summary peak.", value: (_run, event) => event.timeToPeakMin },
+    { key: "delta_peak", description: "Summary peak minus mean baseline.", value: (_run, event) => event.deltaPeak },
+    { key: "delta_2h", description: "Nearest observed post-meal sample to +120 minus baseline.", value: (_run, event) => event.delta2h },
+    { key: "sample_2h_time", description: "Actual sample used for delta_2h.", value: (run, event) => time(run, event.sample2hTime) },
+    { key: "sample_2h_offset_min", description: "Actual sample offset from +120 minutes.", value: (_run, event) => event.sample2hOffsetMin },
+    { key: "approximate_2h_sample", description: "Whether delta_2h uses a non-exact sample.", value: (_run, event) => event.approximate2hSample },
+    { key: "g_half", description: "Baseline plus half of peak rise.", value: (_run, event) => event.gHalf },
+    { key: "time_to_half_min", description: "Minutes from onset to observed half-return.", value: (_run, event) => event.timeToHalfMin },
+    { key: "peak_to_half_min", description: "Minutes from peak to observed half-return.", value: (_run, event) => event.peakToHalfMin },
+    { key: "slope_up_mgdl_per_min", description: "OLS slope from onset through summary peak.", value: (_run, event) => event.slopeUpMgdlPerMin },
+    { key: "slope_down_mgdl_per_min", description: "OLS slope from peak through half-return.", value: (_run, event) => event.slopeDownMgdlPerMin },
+    { key: "slope_up_intercept", description: "OLS rising fit intercept.", value: (_run, event) => event.slopeUpFit?.intercept ?? null },
+    { key: "slope_down_intercept", description: "OLS falling fit intercept.", value: (_run, event) => event.slopeDownFit?.intercept ?? null },
+    { key: "returned_to_baseline_2h", description: "Observed at or below baseline after peak through 2h.", value: (_run, event) => event.returnedToBaseline2h },
+    { key: "returned_to_baseline_4h", description: "Observed at or below baseline after peak through 4h.", value: (_run, event) => event.returnedToBaseline4h },
+    { key: "time_back_to_baseline_min", description: "Minutes from onset to first observed baseline return.", value: (_run, event) => event.timeBackToBaselineMin },
+    { key: "auc_pos_2h", description: "Positive incremental trapezoidal AUC through 2h.", value: (_run, event) => event.aucPositive2h },
+    { key: "auc_pos_4h", description: "Cumulative positive incremental trapezoidal AUC through 4h.", value: (_run, event) => event.aucPositive4h },
+    { key: "auc_integrated_2h_min", description: "Minutes represented by valid adjacent 2h AUC segments.", value: (_run, event) => event.aucIntegrated2hMin },
+    { key: "auc_integrated_4h_min", description: "Minutes represented by valid adjacent 4h AUC segments.", value: (_run, event) => event.aucIntegrated4hMin },
+    { key: "meal_time_above_140_pct", description: "Percent of observed 0-240 minute samples strictly above 140.", value: (_run, event) => event.timeAbove140Pct },
+    { key: "meal_time_above_180_pct", description: "Percent of observed 0-240 minute samples strictly above 180.", value: (_run, event) => event.timeAbove180Pct },
+    { key: "observed_post_samples_n", description: "Finite observed samples in minutes 0 through 240.", value: (_run, event) => event.observedPostSamples },
+    { key: "ref_offset_min", description: "Nearest reported meal time minus detected onset.", value: (_run, event) => event.referenceOffsetMin },
+    { key: "reference_time", description: "Nearest imported reference time.", value: (run, event) => time(run, event.referenceTime) },
+    { key: "reference_label", description: "Nearest imported reference annotation.", value: (_run, event) => event.referenceLabel },
+    ...coverageColumns("baseline", "coverageBaseline"),
+    ...coverageColumns("post_2h", "coveragePost2h"),
+    ...coverageColumns("post_4h", "coveragePost4h"),
+    ...coverageColumns("full", "coverageFull"),
+    { key: "max_gap_minutes", description: "Longest run of missing expected five-minute bins.", value: (_run, event) => event.maxGapMinutes },
+    { key: "truncated_before", description: "Dataset ends inside the expected pre-meal context.", value: (_run, event) => event.truncatedBefore },
+    { key: "truncated_after", description: "Dataset ends inside the expected post-meal context.", value: (_run, event) => event.truncatedAfter },
+    { key: "overlap_within_4h", description: "Another detected onset occurs in the next four hours.", value: (_run, event) => event.overlapWithin4h },
+    { key: "event_warnings", description: "Pipe-separated detector and summary warnings.", value: (_run, event) => event.warnings.join("|") }
+  ];
+  function csvCell(value) {
+    if (value === null || value === void 0 || typeof value === "number" && !Number.isFinite(value)) return "";
+    const text = String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+  function mealRunToCsv(run, events = run.events) {
+    const header = MEAL_EVENT_CSV_COLUMNS.map((column) => csvCell(column.key)).join(",");
+    const rows = events.map((event) => MEAL_EVENT_CSV_COLUMNS.map((column) => csvCell(column.value(run, event))).join(","));
+    return [header, ...rows].join("\r\n");
+  }
+
+  // src/meal-analysis/source-state.ts
+  function createMealSourceState() {
+    return { primary: [], supplemental: null, grid: null, revision: 0, latestGeneration: 0 };
+  }
+  function beginMealSourceImport(state) {
+    const token = state.latestGeneration + 1;
+    return { state: { ...state, latestGeneration: token }, token };
+  }
+  function commitMealSourceImport(state, update) {
+    if (update.token !== state.latestGeneration) return state;
+    const source = { id: `${update.kind}-${update.token}`, name: update.name, text: update.text, kind: update.kind, format: update.format };
+    const primary = update.kind === "primary" ? update.merge ? [...state.primary, source] : [source] : state.primary;
+    const supplemental = update.kind === "supplemental" ? source : update.kind === "primary" ? null : state.supplemental;
+    const grid = buildMealGrid([...primary, ...supplemental ? [supplemental] : []]);
+    return { ...state, primary, supplemental, grid, revision: state.revision + 1 };
+  }
+  return __toCommonJS(index_exports);
+})();

@@ -1,1 +1,196 @@
-.meal-review{margin-top:18px;color:#202b33}.meal-review__toolbar,.meal-review__detail-header,.meal-review__navigation{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.meal-review__toolbar{padding:12px 0;border-top:1px solid #cfd7df;border-bottom:1px solid #cfd7df}.meal-review__toolbar>div:first-child{margin-right:auto}.meal-review__toolbar h3,.meal-review__detail h3{margin:0;font-size:18px;letter-spacing:0}.meal-review__toolbar label{display:grid;gap:4px;font-size:12px;font-weight:700}.meal-review__toolbar select,.meal-review__toolbar button,.meal-review__navigation button{min-height:40px}.meal-review__counts{margin-top:4px;color:#596b79;font-variant-numeric:tabular-nums}.meal-review :focus-visible{outline:3px solid #005bbb;outline-offset:2px}.meal-review__results{display:grid;grid-template-columns:minmax(310px,360px) minmax(0,1fr);gap:18px;margin-top:16px}.meal-review__event-list{min-width:0;border-right:1px solid #d9e0e7;padding-right:16px}.meal-review__table-scroll{max-height:780px;overflow:auto}.meal-review table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}.meal-review th{position:sticky;top:0;z-index:1;padding:8px 5px;text-align:left;background:#eef2f4}.meal-review td{padding:6px 5px;border-bottom:1px solid #e2e7eb;vertical-align:middle}.meal-review tr.is-selected td{background:#e4f1ed}.meal-review__event-select{min-height:40px;padding:3px 5px;border:0;background:transparent;color:#005bbb;text-align:left;cursor:pointer}.meal-review__detail{min-width:0;overflow:hidden}.meal-review__detail-header{justify-content:space-between;margin-bottom:10px}.meal-review__navigation{flex-wrap:nowrap}.meal-review__chart-panel{position:relative;width:100%;height:360px;border-top:1px solid #e0e5e9;border-bottom:1px solid #e0e5e9}.meal-review__chart-panel canvas{width:100%!important;max-width:100%!important;height:100%!important}.meal-review__chart-note{color:#596b79;font-size:12px}.meal-review__metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:16px 0;border-top:1px solid #d9e0e7;border-left:1px solid #d9e0e7}.meal-review__metric{min-width:0;padding:11px;border-right:1px solid #d9e0e7;border-bottom:1px solid #d9e0e7;background:#fff}.meal-review__metric--warning{box-shadow:inset 3px 0 #c68a15;background:#fffbef}.meal-review__metric dt{margin-bottom:5px;color:#596b79;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0}.meal-review__metric dd{margin:0}.meal-review__metric-value{font-size:16px;font-weight:750;font-variant-numeric:tabular-nums}.meal-review__metric-detail{margin-top:4px!important;color:#667685;font-size:12px;line-height:1.35}.meal-review__disclosure{padding:10px 0;border-top:1px solid #d9e0e7}.meal-review__disclosure summary{cursor:pointer;font-weight:700}.meal-review__disclosure ul{padding-left:20px}.meal-review__warning{color:#8a5a00;font-weight:650}.meal-review__empty{margin-top:14px;padding:14px;border-left:3px solid #596b79;background:#f4f6f7}.meal-review__sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.meal-review .hidden{display:none!important}@media(max-width:1000px){.meal-review__results{grid-template-columns:minmax(0,1fr);grid-template-areas:"detail" "list"}.meal-review__detail{grid-area:detail}.meal-review__event-list{grid-area:list;border-right:0;padding-right:0;border-top:1px solid #d9e0e7;padding-top:14px}.meal-review__table-scroll{max-height:420px}}@media(max-width:650px){.meal-review__toolbar{align-items:stretch}.meal-review__toolbar>*{flex:1 1 100%}.meal-review__toolbar select,.meal-review__toolbar button{width:100%}.meal-review__detail-header{align-items:stretch;flex-direction:column}.meal-review__navigation button{flex:1 1 0}.meal-review__metrics{grid-template-columns:minmax(0,1fr)}.meal-review__chart-panel{height:290px}.meal-review table{min-width:480px}}
+.meal-review {
+    margin-top: 18px;
+    color: #202b33;
+}
+
+.meal-review__toolbar,
+.meal-review__detail-header,
+.meal-review__navigation {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.meal-review__toolbar {
+    padding: 12px 0;
+    border-top: 1px solid #cfd7df;
+    border-bottom: 1px solid #cfd7df;
+}
+
+.meal-review__toolbar > div:first-child { margin-right: auto; }
+.meal-review__toolbar h3,
+.meal-review__detail h3 { margin: 0; font-size: 18px; letter-spacing: 0; }
+.meal-review__toolbar label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; }
+.meal-review__toolbar select,
+.meal-review__toolbar button,
+.meal-review__navigation button { min-height: 40px; }
+.meal-review__counts { margin-top: 4px; color: #596b79; font-variant-numeric: tabular-nums; }
+.meal-review :focus-visible { outline: 3px solid #005bbb; outline-offset: 2px; }
+
+.meal-review__results {
+    display: grid;
+    grid-template-columns: minmax(280px, 300px) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.meal-review__event-list {
+    min-width: 0;
+    border-right: 1px solid #d9e0e7;
+    padding-right: 16px;
+}
+
+.meal-review__table-scroll { max-height: 310px; overflow: auto; }
+.meal-review table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.meal-review th { position: sticky; top: 0; z-index: 1; padding: 8px 5px; text-align: left; background: #eef2f4; }
+.meal-review td { padding: 6px 5px; border-bottom: 1px solid #e2e7eb; vertical-align: middle; }
+.meal-review tr.is-selected td { background: #e4f1ed; }
+.meal-review__event-select { min-height: 40px; padding: 3px 5px; border: 0; background: transparent; color: #005bbb; text-align: left; cursor: pointer; }
+
+.meal-review__detail { min-width: 0; overflow: hidden; }
+.meal-review__detail-header { justify-content: space-between; margin-bottom: 10px; }
+.meal-review__navigation { flex-wrap: nowrap; }
+.meal-review__chart-panel { position: relative; width: 100%; height: clamp(210px, 27vh, 260px); border-top: 1px solid #e0e5e9; border-bottom: 1px solid #e0e5e9; }
+.meal-review__chart-panel canvas { width: 100% !important; max-width: 100% !important; height: 100% !important; }
+.meal-review__chart-note { color: #596b79; font-size: 12px; }
+.meal-review__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; border-top: 1px solid #d9e0e7; border-left: 1px solid #d9e0e7; }
+.meal-review__metric { min-width: 0; padding: 11px; border-right: 1px solid #d9e0e7; border-bottom: 1px solid #d9e0e7; background: #fff; }
+.meal-review__metric--warning { box-shadow: inset 3px 0 #c68a15; background: #fffbef; }
+.meal-review__metric dt { margin-bottom: 5px; color: #596b79; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
+.meal-review__metric dd { margin: 0; }
+.meal-review__metric-value { font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.meal-review__metric-detail { margin-top: 4px !important; color: #667685; font-size: 12px; line-height: 1.35; }
+.meal-review__disclosure { padding: 10px 0; border-top: 1px solid #d9e0e7; }
+.meal-review__disclosure summary { cursor: pointer; font-weight: 700; }
+.meal-review__disclosure ul { padding-left: 20px; }
+.meal-review__warning { color: #8a5a00; font-weight: 650; }
+.meal-review__empty { margin-top: 14px; padding: 14px; border-left: 3px solid #596b79; background: #f4f6f7; }
+.meal-review__sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.meal-review .hidden { display: none !important; }
+
+@media (max-width: 1000px) {
+    .meal-review__results { grid-template-columns: minmax(0, 1fr); grid-template-areas: "detail" "list"; }
+    .meal-review__detail { grid-area: detail; }
+    .meal-review__event-list { grid-area: list; border-right: 0; padding-right: 0; border-top: 1px solid #d9e0e7; padding-top: 14px; }
+    .meal-review__table-scroll { max-height: 420px; }
+}
+
+@media (max-width: 650px) {
+    .meal-review__toolbar { align-items: stretch; }
+    .meal-review__toolbar > * { flex: 1 1 100%; }
+    .meal-review__toolbar select,
+    .meal-review__toolbar button { width: 100%; }
+    .meal-review__detail-header { align-items: stretch; flex-direction: column; }
+    .meal-review__navigation button { flex: 1 1 0; }
+    .meal-review__metrics { grid-template-columns: minmax(0, 1fr); }
+    .meal-review__chart-panel { height: 290px; }
+    .meal-review table { min-width: 480px; }
+}
+.meal-review__trends { margin: 14px 0; padding: 14px; border: 1px solid #d9dee3; border-radius: 10px; background: #fff; }
+.meal-review__trends-header, .meal-review__trend-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.meal-review__trends-header h3 { margin: 0; }
+.meal-review__trend-controls { justify-content: flex-start; margin-top: 12px; }
+.meal-review__trend-controls label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+.meal-review__trend-controls select, .meal-review__trend-controls input { min-height: 38px; }
+.meal-review__trend-chart { position: relative; min-height: 220px; }
+.meal-review__trend-chart canvas { max-height: 250px; }
+.meal-review__metric-action { margin-top: 8px; min-height: 34px; font-size: 12px; }
+
+@media (max-width: 600px) { .meal-review__trend-controls > label { flex: 1 1 100%; } }
+
+/* Shared review polish, loaded after the workspace styles. */
+.review-focus-main {
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid #cfd9e3;
+    border-radius: 8px;
+}
+.review-focus-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+}
+.review-focus-toolbar .review-focus-tabs {
+    gap: 4px;
+    margin: 0;
+    padding: 3px;
+    border: 1px solid #cbd6e2;
+    border-radius: 8px;
+    background: #edf2f7;
+}
+.review-focus-tabs [role="tab"] {
+    min-height: 36px;
+    padding: 6px 16px;
+    border: 1px solid #aebdce;
+    border-radius: 5px;
+    background: #fff;
+    color: #33465b;
+    cursor: pointer;
+}
+.review-focus-tabs [role="tab"]:hover { background: #e2ecf9; border-color: #2457a7; }
+.review-focus-tabs [role="tab"][aria-selected="true"] {
+    border-color: #2457a7;
+    background: #2457a7;
+    color: #fff;
+    box-shadow: 0 1px 2px #25304126;
+}
+.review-focus-toolbar :is(.meal-review__detail-header, .hypo-analysis__detail-header) {
+    display: flex;
+    flex: 1 1 320px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    margin: 0;
+}
+.review-focus-toolbar h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.review-position { white-space: nowrap; color: #526476; font-size: 13px; font-variant-numeric: tabular-nums; }
+.review-focus-main .review-compact-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin: 8px 0;
+}
+.review-compact-summary > :is(.meal-review__metric, .hypo-analysis__metric) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+.review-compact-summary dt { margin: 0; font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.review-compact-summary dd { margin: 0; font-size: 13px; }
+.review-compact-summary :is(.meal-review__metric-detail, .hypo-analysis__metric-detail) { margin: 0 !important; font-size: 12px; }
+.review-compact-summary :is(.meal-review__metric--warning, .hypo-analysis__metric--warning) {
+    padding: 3px 6px;
+    background: #fff5db;
+    border-left: 3px solid #b7791f;
+    box-shadow: none;
+}
+.review-focus-main .hypo-analysis__detail { padding: 0; border: 0; border-radius: 0; }
+.review-focus-main .hypo-analysis__timeline { padding: 6px 0 0; border: 0; border-radius: 0; background: transparent; }
+.review-focus-main .hypo-analysis__timeline-header h4 { font-size: 13px; }
+.review-focus-main .hypo-analysis__timeline-header p { font-size: 12px; }
+.review-focus-main .hypo-analysis__badges { margin: 6px 0; }
+.review-focus-main .meal-review__chart-note { margin: 6px 0 0; }
+.review-focus-main :is(.meal-review__trends, .hypo-analysis__trends) { margin-top: 8px; padding: 0; border: 0; }
+.review-event-rail { min-width: 0; border: 1px solid #cfd9e3; border-radius: 8px; background: #fff; }
+.review-event-rail :is(.meal-review__event-list, .hypo-analysis__event-list) { padding: 0; border: 0; border-radius: 0; }
+.review-event-rail .hypo-analysis__event-list h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (min-width: 1100px) {
+    /* The main chart defines the row height; the table cannot stretch it. */
+    .review-event-rail { position: relative; align-self: stretch; overflow: hidden; }
+    .review-event-rail :is(.meal-review__event-list, .hypo-analysis__event-list) { position: absolute; inset: 0; }
+    .review-event-rail :is(.meal-review__table-scroll, .hypo-analysis__table-scroll) { height: 100%; max-height: none; overflow: auto; }
+}
+@media (max-width: 1099px) {
+    .review-event-rail { padding: 0 10px; }
+    .meal-review__results, .hypo-analysis__results { grid-template-columns: minmax(0, 1fr); }
+}
+@media (pointer: coarse) {
+    .review-focus-tabs [role="tab"] { min-height: 44px; }
+}

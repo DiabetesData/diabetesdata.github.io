@@ -1,5 +1,940 @@
-"use strict";var HypoglycemiaAnalysis=(()=>{var q=Object.defineProperty,X=Object.getOwnPropertyDescriptor,ee=Object.getOwnPropertyNames,ie=Object.prototype.hasOwnProperty,ne=(e,n)=>{for(var i in n)q(e,i,{get:n[i],enumerable:!0})},te=(e,n,i,s)=>{if(n&&typeof n=="object"||typeof n=="function")for(let u of ee(n))!ie.call(e,u)&&u!==i&&q(e,u,{get:()=>n[u],enumerable:!(s=X(n,u))||s.enumerable});return e},se=e=>te(q({},"__esModule",{value:!0}),e),G={};ne(G,{ANALYSIS_VERSION:()=>D,BIN_MS:()=>F,CSV_HEADERS:()=>V,DEFAULT_PARAMETERS:()=>Y,analyzeHypoglycemia:()=>_e,eventToCsvRow:()=>Z,exportEventsCsv:()=>de,formatTimestamp:()=>z,getManualPauses:()=>J,normalizeSeriesCsv:()=>me,parseTimestamp:()=>j});var F=5*6e4,D="hypo-v4";function le(e){const n=e.replace(/^\uFEFF/,""),i=[];let s=[],u="",g=!1;const p=()=>{s.push(u),u=""},o=()=>{p(),i.push(s),s=[]};for(let _=0;_<n.length;_++){const T=n[_];if(g){T==='"'?n[_+1]==='"'?(u+='"',_++):g=!1:u+=T;continue}T==='"'&&u.length===0?g=!0:T===","?p():T===`
-`?o():T==="\r"?(n[_+1]===`
-`&&_++,o()):u+=T}if(g)throw new Error("CSV contains an unterminated quoted field.");for((u.length>0||s.length>0)&&o();i.length>0&&i[i.length-1].every(_=>_==="");)i.pop();if(i.length===0)throw new Error("CSV is empty.");const M=i.shift().map(_=>_.trim());if(M.some(_=>_===""))throw new Error("CSV contains an empty column name.");const y=M.map(_=>_.toLowerCase());if(new Set(y).size!==y.length)throw new Error("CSV contains duplicate column names.");const C=i.map((_,T)=>{if(_.length>M.length)throw new Error(`CSV row ${T+2} has more fields than the header.`);return[..._,...new Array(M.length-_.length).fill("")]});return{headers:M,rows:C}}function oe(e){const n=i=>{const s=String(i??"");return/[",\r\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};return[e.headers,...e.rows].map(i=>i.map(n).join(",")).join(`\r
-`)+`\r
-`}function re(e,n){return Object.fromEntries(e.map((i,s)=>[i,n[s]??""]))}function ae(e){const n=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(e.trim());return n?ue({year:Number(n[1]),month:Number(n[2]),day:Number(n[3]),hour:Number(n[4]),minute:Number(n[5]),second:Number(n[6]??0),includedSeconds:n[6]!==void 0}):null}function ue(e){if(e.month<1||e.month>12||e.day<1||e.day>31||e.hour<0||e.hour>23||e.minute<0||e.minute>59||e.second<0||e.second>59)return null;const n=new Date(Date.UTC(e.year,e.month-1,e.day));return n.getUTCFullYear()!==e.year||n.getUTCMonth()!==e.month-1||n.getUTCDate()!==e.day?null:e}function j(e){const n=/^(.*?)(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})?$/.exec(e.trim()),i=ae(n[1]);if(!i)throw new Error(`Invalid timestamp: ${e}`);let s=Date.UTC(i.year,i.month-1,i.day,i.hour,i.minute,i.second);n[2]&&(s+=Number(n[2].padEnd(3,"0")));const u=n[3];if(u&&u!=="Z"){const g=Number(u.slice(1,3)),p=Number(u.slice(4,6));if(g>14||p>59||g===14&&p!==0)throw new Error(`Invalid timestamp offset: ${e}`);s-=(u[0]==="-"?-1:1)*(g*60+p)*6e4}return{time:s,basis:u?"utc":"local_unspecified"}}function z(e,n){const i=new Date(e).toISOString();return n==="utc"?i:i.slice(0,19)}function me(e){if(!e.length)throw new Error("Select at least one custom series CSV.");const n=[];let i;const s=new Set;for(const[m,d]of e.entries()){const I=le(d.text),E=I.headers.map(S=>S.toLowerCase());for(const S of["series","datetime_local","value"])if(!E.includes(S))throw new Error(`${d.name}: missing ${S} column.`);I.rows.forEach((S,h)=>{if(S.every($=>!$.trim()))return;const t=re(E,S);let c;try{c=j(t.datetime_local)}catch{throw new Error(`${d.name}, row ${h+2}: invalid datetime_local.`)}if(i&&c.basis!==i)throw new Error("Cannot mix offset-free and offset-aware timestamps. Supply a consistent time basis.");i=c.basis;let w=null;if(t.reported_datetime_local?.trim())try{const $=j(t.reported_datetime_local);if($.basis!==c.basis||$.time<c.time||$.time>=c.time+F)throw new Error;w=$.time}catch{throw new Error(`${d.name}, row ${h+2}: invalid reported_datetime_local or outside its source bin.`)}const a=t.series.trim(),r=a.toLowerCase()==="cgm"?"cgm":a.toLowerCase()==="insulin"?"insulin":"annotation";if(/insulin/i.test(a)&&r==="annotation")throw new Error(`${d.name}, row ${h+2}: unsupported insulin series "${a}"; define its units and policy first.`);if(r!=="annotation"&&c.time%F!==0)throw new Error(`${d.name}, row ${h+2}: CGM/insulin timestamp must be on the five-minute grid.`);const N=t.value.trim(),x=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(N)?Number(N):NaN,P=Number.isFinite(x)&&(r==="cgm"?x>0:x>=0)?x:null;r!=="annotation"&&P===null&&s.add("invalid_or_blank_numeric_rows"),n.push({sourceFile:d.name,sourceFileIndex:m,reportedTime:w,includedInAnalysis:!0,row:h+2,sourceTimestamp:t.datetime_local,time:c.time,series:a,kind:r,value:P,trace:t.source_trace_index||t.source_trace_name||"",eventType:t.event_type||"",metadata:t})})}if(!n.filter(m=>m.kind==="cgm").length)throw new Error("No CGM rows found.");const g=n.filter(m=>m.kind!=="annotation").map(m=>m.time),p=g.reduce((m,d)=>Math.min(m,d)),M=(g.reduce((m,d)=>Math.max(m,d))-p)/F+1;if(M>11e5)throw new Error("Dataset span exceeds the ten-year analysis limit.");const y=Array.from({length:M},(m,d)=>({time:p+d*F,glucose:null,insulin:null,cgmRecords:[],insulinRecords:[],warnings:[]}));for(const m of n)m.kind!=="annotation"&&y[(m.time-p)/F][m.kind==="cgm"?"cgmRecords":"insulinRecords"].push(m);let C=0,_=0,T=0,k=0,B=0;for(const m of y){for(const d of["cgm","insulin"]){const I=d==="cgm"?m.cgmRecords:m.insulinRecords;if(!I.length)continue;const E=new Map,S=new Map;for(const a of I){const r=JSON.stringify([a.time,a.series.toLowerCase(),a.trace,a.value,a.reportedTime]),N=JSON.stringify([a.sourceFileIndex,r]),x=(S.get(N)??0)+1;S.set(N,x);const P=d==="insulin"?JSON.stringify([r,x]):r;E.has(P)?(a.includedInAnalysis=!1,C++,m.warnings.push(`duplicate_${d}_rows`)):E.set(P,a)}const h=[...E.values()],t=h.some(a=>a.value===null),c=new Set(h.map(a=>a.value)).size>1;c&&(m.warnings.push(`conflicting_${d}_bin`),d==="cgm"?_++:k++),t&&m.warnings.push(`invalid_${d}_bin`);let w=c||t?null:h[0].value;d==="cgm"&&c&&!t&&(w=h.reduce((a,r)=>a+r.value/h.length,0),T++,m.warnings.push("cgm_bin_averaged")),d==="cgm"?m.glucose=w:(m.insulin=t?null:Number(h.reduce((a,r)=>a+r.value,0).toFixed(9)),!t&&h.length>1&&(B++,m.warnings.push("insulin_bin_summed")),h.some(a=>a.reportedTime===null)&&m.warnings.push("insulin_timing_uses_source_bin"))}m.warnings=[...new Set(m.warnings)]}return C&&s.add("duplicate_rows_counted_once"),T&&s.add("conflicting_cgm_bins_averaged"),_>T&&s.add("conflicting_cgm_bins_with_invalid_values_unavailable"),B&&s.add("multiple_insulin_rows_summed_per_bin"),i==="local_unspecified"&&s.add("timezone_unspecified_wall_clock_arithmetic"),{timeBasis:i,sourceFiles:[...new Set(e.map(m=>m.name))],records:n,bins:y,warnings:[...s],duplicateRows:C,conflictingCgmBins:_,averagedCgmBins:T,conflictingInsulinBins:k,summedInsulinBins:B}}function ce(e){const n=(e.metadata.event_time_text||"").trim(),i=/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(n);if(i){let s=Number(i[1]);const u=Number(i[2]),g=Number(i[3]||0),p=i[4]?.toUpperCase();if((p?s>=1&&s<=12:s>=0&&s<=23)&&u<60&&g<60){p&&(s=s%12+(p==="PM"?12:0));const M=e.sourceTimestamp.trim().slice(0,10),y=/(Z|[+-]\d{2}:\d{2})$/.exec(e.sourceTimestamp.trim())?.[1]||"",C=`${M}T${String(s).padStart(2,"0")}:${String(u).padStart(2,"0")}:${String(g).padStart(2,"0")}${y}`,_=j(C).time;if(_>=e.time&&_<e.time+F)return{time:_,timing:"annotation_clock"}}}return{time:e.time,timing:"source_bin"}}function J(e){const n=new Set;return e.records.filter(i=>i.kind==="annotation"&&/^insulin paused$/i.test(i.eventType.trim())).map(i=>({record:i,...ce(i)})).sort((i,s)=>i.time-s.time).filter(i=>n.has(i.time)?!1:(n.add(i.time),!0)).map(i=>{const s=e.bins.find(u=>u.time>i.time&&u.insulin!==null&&u.insulin>0)?.time??null;return{start:i.time,deliveryAgain:s,detail:{time:z(i.time,e.timeBasis),sourceFile:i.record.sourceFile,sourceTimestamp:i.record.sourceTimestamp,annotationTimeText:i.record.metadata.event_time_text||"",timing:i.timing,deliveryObservedAgain:s===null?null:z(s,e.timeBasis)}}})}var Y={lowThresholdMgdl:70,level2ThresholdMgdl:54,sustainedMinutes:15,insulinSemantics:"basal_bolus"};function _e(e,n={}){const i={...Y,...n},{lowThresholdMgdl:s,level2ThresholdMgdl:u,sustainedMinutes:g,insulinSemantics:p}=i;if(!Number.isFinite(s)||s<=0||!Number.isFinite(u)||u<=0||u>s||!Number.isInteger(g)||g<5||g%5!==0||!["basal_bolus","basal_only","bolus_only"].includes(p))throw new Error("Invalid analysis parameters: positive thresholds, Level 2 <= low threshold, and duration in five-minute multiples are required.");const{bins:o}=e,M=g/5,y=t=>z(t,e.timeBasis),C=t=>o[t],_=t=>{const c=o[t],w=c.glucose,a=C(t-1)?.glucose??null;return{time:y(c.time),binTime:y(c.time),timing:"source_bin",glucoseTime:w===null?null:y(c.time),glucoseMgdl:w,rocMgdlPerMin:w===null||a===null?null:(w-a)/5,sourceTimestamps:[...new Set(c.cgmRecords.map(r=>r.sourceTimestamp))]}},T=(t,c)=>{let w=0,a=0;for(let N=t;N<c;N++){const x=C(N)?.insulin;x!=null&&(w+=x,a++)}const r=c-t;return{units:a?Number(w.toFixed(9)):null,presentBins:a,expectedBins:r,coveragePct:a/r*100}},k=[],B=J(e),m=o.findIndex(t=>t.cgmRecords.length>0);let d=o.length-1;for(;d>=0&&!o[d].cgmRecords.length;)d--;function I(t,c,w){const a=t===m||C(t-1)?.glucose==null,r=new Set,N=o[t].time-72*F,x=c===null?o[w].time+F:o[c].time,P=B.filter(l=>l.start<=x&&(l.start>=N||l.deliveryAgain===null||l.deliveryAgain>=N)).map(l=>l.detail);P.length&&r.add("manual_pump_pause_excluded_from_automated_analysis"),P.some(l=>l.timing==="source_bin")&&r.add("manual_pause_time_uses_source_bin"),e.timeBasis==="local_unspecified"&&r.add("timezone_unspecified_wall_clock_arithmetic"),a&&r.add("onset_may_precede_observation"),c===null&&(r.add("recovery_not_confirmed"),r.add(w<d?"recovery_interrupted_by_missing_cgm":"dataset_ended_before_recovery"));let $=t;for(let l=t;l<=w;l++)o[l].glucose!==null&&o[l].glucose<o[$].glucose&&($=l);const K=T(t-36,t),Q=T(t-72,t),ge=T(t-72,t-36);Q.presentBins<72&&r.add("incomplete_insulin_6h"),K.presentBins<36&&r.add("incomplete_insulin_3h"),p!=="basal_bolus"&&r.add(`insulin_semantics_${p}`);let v=t-1;for(;v>=0&&!(o[v].insulin!==null&&o[v].insulin>0);)v--;const A=v>=0?{..._(v),units:o[v].insulin,binUnits:o[v].insulin,sourceTimestamps:[...new Set(o[v].insulinRecords.map(l=>l.sourceTimestamp))],minutesBeforeEvent:(t-v)*5,outside6h:t-v>72}:null;if(A){const l=o[v].insulinRecords.filter(f=>f.includedInAnalysis&&f.value>0);if(l.length&&l.every(f=>f.reportedTime!==null)){const f=Math.max(...l.map(b=>b.reportedTime));A.time=y(f),A.timing="reported_clock",A.units=Number(l.filter(b=>b.reportedTime===f).reduce((b,fe)=>b+fe.value,0).toFixed(9)),A.minutesBeforeEvent=(o[t].time-f)/6e4,A.sourceTimestamps=[...new Set(l.map(b=>b.metadata.reported_datetime_local))]}}let R=null,O="insufficient_data";if(p==="bolus_only")O="not_applicable_bolus_only";else{let l=!1;for(let f=Math.max(0,v+1);f<=t;f++)o[f].insulin===null&&(l=!0);if(o[t].insulin!==null&&o[t].insulin>0)O="delivery_resumed";else if(l)O="missing_insulin_bins";else if(v>=0&&v+1<=t){R=_(v+1),R.sourceTimestamps=[...new Set(o[v+1].insulinRecords.map(b=>b.sourceTimestamp))];const f=o[v+1].insulinRecords.filter(b=>b.includedInAnalysis);f.length&&f.every(b=>b.reportedTime!==null)&&(R.time=y(Math.min(...f.map(b=>b.reportedTime))),R.timing="reported_clock",R.sourceTimestamps=[...new Set(f.map(b=>b.metadata.reported_datetime_local))]),O="confirmed_zero_bins_to_event"}l&&A&&r.add("last_insulin_is_last_observed_positive_only")}const W=_(t);W.rocMgdlPerMin===null&&r.add("onset_roc_unavailable");for(const[l,f]of[["last_insulin",A],["first_no_insulin",R]])f&&f.glucoseMgdl===null&&r.add(`${l}_glucose_unavailable`),f&&f.rocMgdlPerMin===null&&r.add(`${l}_roc_unavailable`);A?.outside6h&&r.add("last_insulin_outside_6h");let L=0,U=0,H=0;for(let l=t-72;l<=w;l++){const f=C(l);f?.glucose!=null?(l<t&&L++,U=0):(U+=5,H=Math.max(H,U)),f?.warnings.forEach(b=>r.add(b))}L<72&&r.add("incomplete_cgm_6h"),v>=0&&A&&o[v].warnings.forEach(l=>r.add(l)),k.push({analysisVersion:D,eventId:`${D}:${y(o[t].time)}`,sourceFiles:e.sourceFiles,sourceCgmFiles:[...new Set(e.records.filter(l=>l.kind==="cgm").map(l=>l.sourceFile))],sourceInsulinFiles:[...new Set(e.records.filter(l=>l.kind==="insulin").map(l=>l.sourceFile))],timeBasis:e.timeBasis,startTime:y(o[t].time),endTime:c===null?null:y(o[c].time),observedThrough:y(o[w].time),durationMinutes:c===null?null:(c-t)*5,nadirTime:y(o[$].time),nadirGlucoseMgdl:o[$].glucose,level2:o[$].glucose<u,onset:W,automatedAnalysisEligible:p!=="bolus_only"&&P.length===0,manualPauseAffected:P.length>0,manualPauses:P,insulin3h:K,insulin6h:Q,insulin3To6h:ge,lastInsulin:A,firstNoInsulin:R,cessationStatus:O,quality:{eventTruncated:a||c===null,onsetTruncated:a,recoveryTruncated:c===null,cgmCoverage6hPct:L/72*100,maxCgmGapMinutes:H,warnings:[...r].sort()},parameters:{...i}})}let E=0,S=0,h=null;for(let t=m;t<=d;t++){const c=o[t].glucose;if(c===null)h!==null&&I(h,null,t-1),h=null,E=S=0;else if(h===null)E=c<s?E+1:0,E>=M&&(h=t-M+1,S=0);else if(S=c>=s?S+1:0,S>=M){const w=t-M+1;I(h,w,w-1),h=null,E=S=0}}return h!==null&&I(h,null,d),k}function Z(e){const n=e.lastInsulin,i=e.firstNoInsulin;return{analysis_version:e.analysisVersion,source_cgm_file:e.sourceCgmFiles.join("; "),source_insulin_file:e.sourceInsulinFiles.join("; "),event_id:e.eventId,time_basis:e.timeBasis,event_start:e.startTime,event_end:e.endTime,observed_through:e.observedThrough,duration_minutes:e.durationMinutes,nadir_time:e.nadirTime,nadir_glucose_mgdl:e.nadirGlucoseMgdl,level2_flag:e.level2,automated_analysis_eligible:e.automatedAnalysisEligible,manual_pause_affected_flag:e.manualPauseAffected,manual_pause_times:e.manualPauses.map(s=>s.time).join("; "),manual_pause_source_timestamps:e.manualPauses.map(s=>s.sourceTimestamp).join("; "),manual_pause_timing:e.manualPauses.map(s=>s.timing).join("; "),manual_pause_policy:"exclude_pause_overlapping_6h_lookback_through_recovery",glucose_at_onset_mgdl:e.onset.glucoseMgdl,roc_at_onset_mgdl_per_min:e.onset.rocMgdlPerMin,insulin_3h_units:e.insulin3h.units,insulin_6h_units:e.insulin6h.units,insulin_3h_coverage_pct:e.insulin3h.coveragePct,insulin_6h_coverage_pct:e.insulin6h.coveragePct,last_insulin_time:n?.time??null,last_insulin_units:n?.units??null,last_insulin_bin_time:n?.binTime??null,last_insulin_bin_units:n?.binUnits??null,last_insulin_timing:n?.timing??null,last_insulin_source_timestamps:n?.sourceTimestamps.join("; ")??null,minutes_last_insulin_to_event:n?.minutesBeforeEvent??null,last_insulin_outside_6h_flag:n?.outside6h??null,glucose_time_at_last_insulin:n?.glucoseTime??null,glucose_at_last_insulin_mgdl:n?.glucoseMgdl??null,roc_at_last_insulin_mgdl_per_min:n?.rocMgdlPerMin??null,first_no_insulin_time:i?.time??null,first_no_insulin_bin_time:i?.binTime??null,first_no_insulin_timing:i?.timing??null,insulin_cessation_status:e.cessationStatus,first_no_insulin_source_timestamps:i?.sourceTimestamps.join("; ")??null,glucose_time_at_first_no_insulin:i?.glucoseTime??null,glucose_at_first_no_insulin_mgdl:i?.glucoseMgdl??null,roc_at_first_no_insulin_mgdl_per_min:i?.rocMgdlPerMin??null,cgm_coverage_6h_pct:e.quality.cgmCoverage6hPct,max_cgm_gap_minutes:e.quality.maxCgmGapMinutes,event_truncated_flag:e.quality.eventTruncated,onset_truncated_flag:e.quality.onsetTruncated,recovery_truncated_flag:e.quality.recoveryTruncated,quality_warnings:e.quality.warnings.join("; "),low_threshold_mgdl:e.parameters.lowThresholdMgdl,level2_threshold_mgdl:e.parameters.level2ThresholdMgdl,sustained_minutes:e.parameters.sustainedMinutes,recovery_minutes:e.parameters.sustainedMinutes,grid_minutes:5,max_allowed_missing_bins:0,insulin_delivery_type:e.parameters.insulinSemantics,duplicate_policy:"cgm_mean_insulin_sum_within_file_cross_file_max_multiplicity"}}var V=["analysis_version","source_cgm_file","source_insulin_file","event_id","time_basis","event_start","event_end","observed_through","duration_minutes","nadir_time","nadir_glucose_mgdl","level2_flag","automated_analysis_eligible","manual_pause_affected_flag","manual_pause_times","manual_pause_source_timestamps","manual_pause_timing","manual_pause_policy","glucose_at_onset_mgdl","roc_at_onset_mgdl_per_min","insulin_3h_units","insulin_6h_units","insulin_3h_coverage_pct","insulin_6h_coverage_pct","last_insulin_time","last_insulin_units","last_insulin_bin_time","last_insulin_bin_units","last_insulin_timing","last_insulin_source_timestamps","minutes_last_insulin_to_event","last_insulin_outside_6h_flag","glucose_time_at_last_insulin","glucose_at_last_insulin_mgdl","roc_at_last_insulin_mgdl_per_min","first_no_insulin_time","first_no_insulin_bin_time","first_no_insulin_timing","insulin_cessation_status","first_no_insulin_source_timestamps","glucose_time_at_first_no_insulin","glucose_at_first_no_insulin_mgdl","roc_at_first_no_insulin_mgdl_per_min","cgm_coverage_6h_pct","max_cgm_gap_minutes","event_truncated_flag","onset_truncated_flag","recovery_truncated_flag","quality_warnings","low_threshold_mgdl","level2_threshold_mgdl","sustained_minutes","recovery_minutes","grid_minutes","max_allowed_missing_bins","insulin_delivery_type","duplicate_policy"];function de(e){const n=e.map(i=>{const s=Z(i);return V.map(u=>{const g=s[u];if(g==null)return"";if(typeof g=="number")return String(Number(g.toFixed(9)));const p=String(g);return typeof g=="string"&&/^[\s]*[=+@-]/.test(p)?`'${p}`:p})});return oe({headers:V,rows:n})}return se(G)})();
+"use strict";
+var HypoglycemiaAnalysis = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // src/hypoglycemia/index.ts
+  var index_exports = {};
+  __export(index_exports, {
+    ANALYSIS_VERSION: () => ANALYSIS_VERSION,
+    BIN_MS: () => BIN_MS,
+    CSV_HEADERS: () => CSV_HEADERS,
+    DAILY_CSV_HEADERS: () => DAILY_CSV_HEADERS,
+    DAILY_SUMMARY_VERSION: () => DAILY_SUMMARY_VERSION,
+    DEFAULT_PARAMETERS: () => DEFAULT_PARAMETERS,
+    analyzeHypoglycemia: () => analyzeHypoglycemia,
+    eventToCsvRow: () => eventToCsvRow,
+    exportDailySummariesCsv: () => exportDailySummariesCsv,
+    exportEventsCsv: () => exportEventsCsv,
+    formatTimestamp: () => formatTimestamp,
+    getManualPauses: () => getManualPauses,
+    normalizeSeriesCsv: () => normalizeSeriesCsv,
+    parseTimestamp: () => parseTimestamp,
+    summarizeHypoglycemiaDays: () => summarizeHypoglycemiaDays
+  });
+
+  // src/hypoglycemia/types.ts
+  var BIN_MS = 5 * 6e4;
+  var ANALYSIS_VERSION = "hypo-v5";
+
+  // src/anonymize/csv.ts
+  function parseCsv(csvText) {
+    const text = csvText.replace(/^\uFEFF/, "");
+    const records = [];
+    let record = [];
+    let field = "";
+    let inQuotes = false;
+    const pushField = () => {
+      record.push(field);
+      field = "";
+    };
+    const pushRecord = () => {
+      pushField();
+      records.push(record);
+      record = [];
+    };
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (inQuotes) {
+        if (char === '"') {
+          if (text[index + 1] === '"') {
+            field += '"';
+            index++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          field += char;
+        }
+        continue;
+      }
+      if (char === '"' && field.length === 0) {
+        inQuotes = true;
+      } else if (char === ",") {
+        pushField();
+      } else if (char === "\n") {
+        pushRecord();
+      } else if (char === "\r") {
+        if (text[index + 1] === "\n") {
+          index++;
+        }
+        pushRecord();
+      } else {
+        field += char;
+      }
+    }
+    if (inQuotes) {
+      throw new Error("CSV contains an unterminated quoted field.");
+    }
+    if (field.length > 0 || record.length > 0) {
+      pushRecord();
+    }
+    while (records.length > 0 && records[records.length - 1].every((cell) => cell === "")) {
+      records.pop();
+    }
+    if (records.length === 0) {
+      throw new Error("CSV is empty.");
+    }
+    const headers = records.shift().map((header) => header.trim());
+    if (headers.some((header) => header === "")) {
+      throw new Error("CSV contains an empty column name.");
+    }
+    const normalizedHeaders = headers.map((header) => header.toLowerCase());
+    if (new Set(normalizedHeaders).size !== normalizedHeaders.length) {
+      throw new Error("CSV contains duplicate column names.");
+    }
+    const rows = records.map((sourceRow, rowIndex) => {
+      if (sourceRow.length > headers.length) {
+        throw new Error(`CSV row ${rowIndex + 2} has more fields than the header.`);
+      }
+      return [...sourceRow, ...new Array(headers.length - sourceRow.length).fill("")];
+    });
+    return { headers, rows };
+  }
+  function serializeCsv(table) {
+    const encode = (value) => {
+      const normalized = String(value ?? "");
+      if (/[",\r\n]/.test(normalized)) {
+        return `"${normalized.replace(/"/g, '""')}"`;
+      }
+      return normalized;
+    };
+    return [table.headers, ...table.rows].map((row) => row.map(encode).join(",")).join("\r\n") + "\r\n";
+  }
+  function rowToObject(headers, row) {
+    return Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
+  }
+
+  // src/anonymize/date-mapping.ts
+  function parseLocalDateTime(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+    if (!match) return null;
+    return validateParts({
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+      hour: Number(match[4]),
+      minute: Number(match[5]),
+      second: Number(match[6] ?? 0),
+      includedSeconds: match[6] !== void 0
+    });
+  }
+  function validateParts(parts) {
+    if (parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour < 0 || parts.hour > 23 || parts.minute < 0 || parts.minute > 59 || parts.second < 0 || parts.second > 59) {
+      return null;
+    }
+    const candidate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    if (candidate.getUTCFullYear() !== parts.year || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) {
+      return null;
+    }
+    return parts;
+  }
+
+  // src/hypoglycemia/normalize.ts
+  function parseTimestamp(value) {
+    const match = /^(.*?)(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})?$/.exec(value.trim());
+    const parts = parseLocalDateTime(match[1]);
+    if (!parts) throw new Error(`Invalid timestamp: ${value}`);
+    let time = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    if (match[2]) time += Number(match[2].padEnd(3, "0"));
+    const suffix = match[3];
+    if (suffix && suffix !== "Z") {
+      const hours = Number(suffix.slice(1, 3));
+      const minutes = Number(suffix.slice(4, 6));
+      if (hours > 14 || minutes > 59 || hours === 14 && minutes !== 0) {
+        throw new Error(`Invalid timestamp offset: ${value}`);
+      }
+      time -= (suffix[0] === "-" ? -1 : 1) * (hours * 60 + minutes) * 6e4;
+    }
+    return { time, basis: suffix ? "utc" : "local_unspecified" };
+  }
+  function formatTimestamp(time, basis) {
+    const iso = new Date(time).toISOString();
+    return basis === "utc" ? iso : iso.slice(0, 19);
+  }
+  function normalizeSeriesCsv(files) {
+    if (!files.length) throw new Error("Select at least one custom series CSV.");
+    const records = [];
+    let timeBasis;
+    const warnings = /* @__PURE__ */ new Set();
+    for (const [sourceFileIndex, file] of files.entries()) {
+      const table = parseCsv(file.text);
+      const headers = table.headers.map((header) => header.toLowerCase());
+      for (const required of ["series", "datetime_local", "value"]) {
+        if (!headers.includes(required)) throw new Error(`${file.name}: missing ${required} column.`);
+      }
+      table.rows.forEach((cells, index) => {
+        if (cells.every((cell) => !cell.trim())) return;
+        const row = rowToObject(headers, cells);
+        let parsed;
+        try {
+          parsed = parseTimestamp(row.datetime_local);
+        } catch {
+          throw new Error(`${file.name}, row ${index + 2}: invalid datetime_local.`);
+        }
+        if (timeBasis && parsed.basis !== timeBasis) {
+          throw new Error("Cannot mix offset-free and offset-aware timestamps. Supply a consistent time basis.");
+        }
+        timeBasis = parsed.basis;
+        let reportedTime = null;
+        if (row.reported_datetime_local?.trim()) {
+          try {
+            const reported = parseTimestamp(row.reported_datetime_local);
+            if (reported.basis !== parsed.basis || reported.time < parsed.time || reported.time >= parsed.time + BIN_MS) throw new Error();
+            reportedTime = reported.time;
+          } catch {
+            throw new Error(`${file.name}, row ${index + 2}: invalid reported_datetime_local or outside its source bin.`);
+          }
+        }
+        const series = row.series.trim();
+        const kind = series.toLowerCase() === "cgm" ? "cgm" : series.toLowerCase() === "insulin" ? "insulin" : "annotation";
+        if (/insulin/i.test(series) && kind === "annotation") {
+          throw new Error(`${file.name}, row ${index + 2}: unsupported insulin series "${series}"; define its units and policy first.`);
+        }
+        if (kind !== "annotation" && parsed.time % BIN_MS !== 0) {
+          throw new Error(`${file.name}, row ${index + 2}: CGM/insulin timestamp must be on the five-minute grid.`);
+        }
+        const valueText = row.value.trim();
+        const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(valueText) ? Number(valueText) : NaN;
+        const value = Number.isFinite(numeric) && (kind === "cgm" ? numeric > 0 : numeric >= 0) ? numeric : null;
+        if (kind !== "annotation" && value === null) warnings.add("invalid_or_blank_numeric_rows");
+        records.push({
+          sourceFile: file.name,
+          sourceFileIndex,
+          reportedTime,
+          includedInAnalysis: true,
+          row: index + 2,
+          sourceTimestamp: row.datetime_local,
+          time: parsed.time,
+          series,
+          kind,
+          value,
+          trace: row.source_trace_index || row.source_trace_name || "",
+          eventType: row.event_type || "",
+          metadata: row
+        });
+      });
+    }
+    const cgm = records.filter((record) => record.kind === "cgm");
+    if (!cgm.length) throw new Error("No CGM rows found.");
+    const times = records.filter((record) => record.kind !== "annotation").map((record) => record.time);
+    const start = times.reduce((a, b) => Math.min(a, b));
+    const end = times.reduce((a, b) => Math.max(a, b));
+    const length = (end - start) / BIN_MS + 1;
+    if (length > 11e5) throw new Error("Dataset span exceeds the ten-year analysis limit.");
+    const bins = Array.from({ length }, (_, i) => ({
+      time: start + i * BIN_MS,
+      glucose: null,
+      insulin: null,
+      cgmRecords: [],
+      insulinRecords: [],
+      warnings: []
+    }));
+    for (const record of records) {
+      if (record.kind === "annotation") continue;
+      bins[(record.time - start) / BIN_MS][record.kind === "cgm" ? "cgmRecords" : "insulinRecords"].push(record);
+    }
+    let duplicateRows = 0;
+    let conflictingCgmBins = 0;
+    let averagedCgmBins = 0;
+    let conflictingInsulinBins = 0;
+    let summedInsulinBins = 0;
+    for (const bin of bins) {
+      for (const kind of ["cgm", "insulin"]) {
+        const source = kind === "cgm" ? bin.cgmRecords : bin.insulinRecords;
+        if (!source.length) continue;
+        const unique = /* @__PURE__ */ new Map();
+        const occurrences = /* @__PURE__ */ new Map();
+        for (const record of source) {
+          const identity = JSON.stringify([
+            record.time,
+            record.series.toLowerCase(),
+            record.trace,
+            record.value,
+            record.reportedTime
+          ]);
+          const fileKey = JSON.stringify([record.sourceFileIndex, identity]);
+          const occurrence = (occurrences.get(fileKey) ?? 0) + 1;
+          occurrences.set(fileKey, occurrence);
+          const key = kind === "insulin" ? JSON.stringify([identity, occurrence]) : identity;
+          if (unique.has(key)) {
+            record.includedInAnalysis = false;
+            duplicateRows++;
+            bin.warnings.push(`duplicate_${kind}_rows`);
+          } else unique.set(key, record);
+        }
+        const observations = [...unique.values()];
+        const invalid = observations.some((record) => record.value === null);
+        const conflict = new Set(observations.map((record) => record.value)).size > 1;
+        if (conflict) {
+          bin.warnings.push(`conflicting_${kind}_bin`);
+          if (kind === "cgm") conflictingCgmBins++;
+          else conflictingInsulinBins++;
+        }
+        if (invalid) bin.warnings.push(`invalid_${kind}_bin`);
+        let value = conflict || invalid ? null : observations[0].value;
+        if (kind === "cgm" && conflict && !invalid) {
+          value = observations.reduce((sum, record) => sum + record.value / observations.length, 0);
+          averagedCgmBins++;
+          bin.warnings.push("cgm_bin_averaged");
+        }
+        if (kind === "cgm") bin.glucose = value;
+        else {
+          bin.insulin = invalid ? null : Number(observations.reduce((sum, record) => sum + record.value, 0).toFixed(9));
+          if (!invalid && observations.length > 1) {
+            summedInsulinBins++;
+            bin.warnings.push("insulin_bin_summed");
+          }
+          if (observations.some((record) => record.reportedTime === null)) bin.warnings.push("insulin_timing_uses_source_bin");
+        }
+      }
+      bin.warnings = [...new Set(bin.warnings)];
+    }
+    if (duplicateRows) warnings.add("duplicate_rows_counted_once");
+    if (averagedCgmBins) warnings.add("conflicting_cgm_bins_averaged");
+    if (conflictingCgmBins > averagedCgmBins) warnings.add("conflicting_cgm_bins_with_invalid_values_unavailable");
+    if (summedInsulinBins) warnings.add("multiple_insulin_rows_summed_per_bin");
+    if (timeBasis === "local_unspecified") warnings.add("timezone_unspecified_wall_clock_arithmetic");
+    return {
+      timeBasis,
+      sourceFiles: [...new Set(files.map((file) => file.name))],
+      records,
+      bins,
+      warnings: [...warnings],
+      duplicateRows,
+      conflictingCgmBins,
+      averagedCgmBins,
+      conflictingInsulinBins,
+      summedInsulinBins
+    };
+  }
+
+  // src/hypoglycemia/manual-pauses.ts
+  function pauseTime(record) {
+    const clock = (record.metadata.event_time_text || "").trim();
+    const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(clock);
+    if (match) {
+      let hour = Number(match[1]);
+      const minute = Number(match[2]);
+      const second = Number(match[3] || 0);
+      const meridiem = match[4]?.toUpperCase();
+      const validHour = meridiem ? hour >= 1 && hour <= 12 : hour >= 0 && hour <= 23;
+      if (validHour && minute < 60 && second < 60) {
+        if (meridiem) hour = hour % 12 + (meridiem === "PM" ? 12 : 0);
+        const date = record.sourceTimestamp.trim().slice(0, 10);
+        const offset = /(Z|[+-]\d{2}:\d{2})$/.exec(record.sourceTimestamp.trim())?.[1] || "";
+        const timestamp = `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}${offset}`;
+        const preciseTime = parseTimestamp(timestamp).time;
+        if (preciseTime >= record.time && preciseTime < record.time + BIN_MS) return { time: preciseTime, timing: "annotation_clock" };
+      }
+    }
+    return { time: record.time, timing: "source_bin" };
+  }
+  function getManualPauses(dataset) {
+    const seen = /* @__PURE__ */ new Set();
+    return dataset.records.filter((record) => record.kind === "annotation" && /^insulin paused$/i.test(record.eventType.trim())).map((record) => ({ record, ...pauseTime(record) })).sort((a, b) => a.time - b.time).filter((pause) => {
+      if (seen.has(pause.time)) return false;
+      seen.add(pause.time);
+      return true;
+    }).map((pause) => {
+      const deliveryAgain = dataset.bins.find((bin) => bin.time > pause.time && bin.insulin !== null && bin.insulin > 0)?.time ?? null;
+      return {
+        start: pause.time,
+        deliveryAgain,
+        detail: {
+          time: formatTimestamp(pause.time, dataset.timeBasis),
+          sourceFile: pause.record.sourceFile,
+          sourceTimestamp: pause.record.sourceTimestamp,
+          annotationTimeText: pause.record.metadata.event_time_text || "",
+          timing: pause.timing,
+          deliveryObservedAgain: deliveryAgain === null ? null : formatTimestamp(deliveryAgain, dataset.timeBasis)
+        }
+      };
+    });
+  }
+
+  // src/hypoglycemia/analyze.ts
+  var DEFAULT_PARAMETERS = {
+    lowThresholdMgdl: 70,
+    level2ThresholdMgdl: 54,
+    sustainedMinutes: 15,
+    insulinSemantics: "basal_bolus"
+  };
+  function analyzeHypoglycemia(dataset, options = {}) {
+    const parameters = { ...DEFAULT_PARAMETERS, ...options };
+    const { lowThresholdMgdl: threshold, level2ThresholdMgdl, sustainedMinutes, insulinSemantics } = parameters;
+    if (!Number.isFinite(threshold) || threshold <= 0 || !Number.isFinite(level2ThresholdMgdl) || level2ThresholdMgdl <= 0 || level2ThresholdMgdl > threshold || !Number.isInteger(sustainedMinutes) || sustainedMinutes < 5 || sustainedMinutes % 5 !== 0 || !["basal_bolus", "basal_only", "bolus_only"].includes(insulinSemantics)) {
+      throw new Error("Invalid analysis parameters: positive thresholds, Level 2 <= low threshold, and duration in five-minute multiples are required.");
+    }
+    const { bins } = dataset;
+    const count = sustainedMinutes / 5;
+    const format = (time) => formatTimestamp(time, dataset.timeBasis);
+    const binAt = (index) => bins[index];
+    const landmark = (index) => {
+      const bin = bins[index];
+      const glucose = bin.glucose;
+      const previous = binAt(index - 1)?.glucose ?? null;
+      return {
+        time: format(bin.time),
+        binTime: format(bin.time),
+        timing: "source_bin",
+        glucoseTime: glucose === null ? null : format(bin.time),
+        glucoseMgdl: glucose,
+        rocMgdlPerMin: glucose === null || previous === null ? null : (glucose - previous) / 5,
+        sourceTimestamps: [...new Set(bin.cgmRecords.map((record) => record.sourceTimestamp))]
+      };
+    };
+    const windowStats = (from, to) => {
+      let sum = 0;
+      let presentBins = 0;
+      for (let index = from; index < to; index++) {
+        const value = binAt(index)?.insulin;
+        if (value !== null && value !== void 0) {
+          sum += value;
+          presentBins++;
+        }
+      }
+      const expectedBins = to - from;
+      return {
+        units: presentBins ? Number(sum.toFixed(9)) : null,
+        presentBins,
+        expectedBins,
+        coveragePct: presentBins / expectedBins * 100
+      };
+    };
+    const results = [];
+    const pauses = getManualPauses(dataset);
+    const firstCgm = bins.findIndex((bin) => bin.cgmRecords.length > 0);
+    let lastCgm = bins.length - 1;
+    while (lastCgm >= 0 && !bins[lastCgm].cgmRecords.length) lastCgm--;
+    function finish(start, end, observedEnd) {
+      const onsetTruncated = start === firstCgm || binAt(start - 1)?.glucose == null;
+      const warnings = /* @__PURE__ */ new Set();
+      const reviewStart = bins[start].time - 72 * BIN_MS;
+      const reviewEnd = end === null ? bins[observedEnd].time + BIN_MS : bins[end].time;
+      const manualPauses = pauses.filter((pause) => pause.start <= reviewEnd && (pause.start >= reviewStart || pause.deliveryAgain === null || pause.deliveryAgain >= reviewStart)).map((pause) => pause.detail);
+      if (manualPauses.length) warnings.add("manual_pump_pause_excluded_from_automated_analysis");
+      if (manualPauses.some((pause) => pause.timing === "source_bin")) warnings.add("manual_pause_time_uses_source_bin");
+      if (dataset.timeBasis === "local_unspecified") warnings.add("timezone_unspecified_wall_clock_arithmetic");
+      if (onsetTruncated) warnings.add("onset_may_precede_observation");
+      if (end === null) {
+        warnings.add("recovery_not_confirmed");
+        warnings.add(observedEnd < lastCgm ? "recovery_interrupted_by_missing_cgm" : "dataset_ended_before_recovery");
+      }
+      let nadir = start;
+      for (let index = start; index <= observedEnd; index++) {
+        if (bins[index].glucose !== null && bins[index].glucose < bins[nadir].glucose) nadir = index;
+      }
+      const insulin3h = windowStats(start - 36, start);
+      const insulin6h = windowStats(start - 72, start);
+      const insulin3To6h = windowStats(start - 72, start - 36);
+      if (insulin6h.presentBins < 72) warnings.add("incomplete_insulin_6h");
+      if (insulin3h.presentBins < 36) warnings.add("incomplete_insulin_3h");
+      if (insulinSemantics !== "basal_bolus") warnings.add(`insulin_semantics_${insulinSemantics}`);
+      let lastPositive = start - 1;
+      while (lastPositive >= 0 && !(bins[lastPositive].insulin !== null && bins[lastPositive].insulin > 0)) lastPositive--;
+      const lastInsulin = lastPositive >= 0 ? {
+        ...landmark(lastPositive),
+        units: bins[lastPositive].insulin,
+        binUnits: bins[lastPositive].insulin,
+        sourceTimestamps: [...new Set(bins[lastPositive].insulinRecords.map((record) => record.sourceTimestamp))],
+        minutesBeforeEvent: (start - lastPositive) * 5,
+        outside6h: start - lastPositive > 72,
+        priorContext: (() => {
+          const glucoseBin = binAt(lastPositive - 1);
+          const rocStartBin = binAt(lastPositive - 2);
+          const contextWarnings = /* @__PURE__ */ new Set();
+          glucoseBin?.warnings.forEach((warning) => contextWarnings.add(warning));
+          rocStartBin?.warnings.forEach((warning) => contextWarnings.add(warning));
+          if (!glucoseBin || glucoseBin.glucose === null) contextWarnings.add("prior_delivery_glucose_unavailable");
+          if (!rocStartBin || rocStartBin.glucose === null || !glucoseBin || glucoseBin.glucose === null) {
+            contextWarnings.add("prior_delivery_roc_unavailable");
+          }
+          const deliveryTime = bins[lastPositive].time;
+          return {
+            method: "previous_source_bin_v1",
+            glucoseBinTime: format(deliveryTime - BIN_MS),
+            glucoseMgdl: glucoseBin?.glucose ?? null,
+            rocStartBinTime: format(deliveryTime - 2 * BIN_MS),
+            rocEndBinTime: format(deliveryTime - BIN_MS),
+            rocMgdlPerMin: glucoseBin?.glucose == null || rocStartBin?.glucose == null ? null : (glucoseBin.glucose - rocStartBin.glucose) / 5,
+            glucoseBinToDeliveryMinutes: 5,
+            glucoseSourceTimestamps: [...new Set(glucoseBin?.cgmRecords.map((record) => record.sourceTimestamp) ?? [])],
+            rocStartSourceTimestamps: [...new Set(rocStartBin?.cgmRecords.map((record) => record.sourceTimestamp) ?? [])],
+            qualityWarnings: [...contextWarnings].sort()
+          };
+        })()
+      } : null;
+      if (lastInsulin) {
+        const positive = bins[lastPositive].insulinRecords.filter((record) => record.includedInAnalysis && record.value > 0);
+        if (positive.length && positive.every((record) => record.reportedTime !== null)) {
+          const latest = Math.max(...positive.map((record) => record.reportedTime));
+          lastInsulin.time = format(latest);
+          lastInsulin.timing = "reported_clock";
+          lastInsulin.units = Number(positive.filter((record) => record.reportedTime === latest).reduce((sum, record) => sum + record.value, 0).toFixed(9));
+          lastInsulin.minutesBeforeEvent = (bins[start].time - latest) / 6e4;
+          lastInsulin.priorContext.glucoseBinToDeliveryMinutes = (latest - (bins[lastPositive].time - BIN_MS)) / 6e4;
+          lastInsulin.sourceTimestamps = [...new Set(positive.map((record) => record.metadata.reported_datetime_local))];
+        }
+      }
+      let firstNoInsulin = null;
+      let cessationStatus = "insufficient_data";
+      if (insulinSemantics === "bolus_only") cessationStatus = "not_applicable_bolus_only";
+      else {
+        let missing = false;
+        for (let index = Math.max(0, lastPositive + 1); index <= start; index++) {
+          if (bins[index].insulin === null) missing = true;
+        }
+        if (bins[start].insulin !== null && bins[start].insulin > 0) cessationStatus = "delivery_resumed";
+        else if (missing) cessationStatus = "missing_insulin_bins";
+        else if (lastPositive >= 0 && lastPositive + 1 <= start) {
+          firstNoInsulin = landmark(lastPositive + 1);
+          firstNoInsulin.sourceTimestamps = [...new Set(bins[lastPositive + 1].insulinRecords.map((record) => record.sourceTimestamp))];
+          const zeros = bins[lastPositive + 1].insulinRecords.filter((record) => record.includedInAnalysis);
+          if (zeros.length && zeros.every((record) => record.reportedTime !== null)) {
+            firstNoInsulin.time = format(Math.min(...zeros.map((record) => record.reportedTime)));
+            firstNoInsulin.timing = "reported_clock";
+            firstNoInsulin.sourceTimestamps = [...new Set(zeros.map((record) => record.metadata.reported_datetime_local))];
+          }
+          cessationStatus = "confirmed_zero_bins_to_event";
+        }
+        if (missing && lastInsulin) warnings.add("last_insulin_is_last_observed_positive_only");
+      }
+      const onset = landmark(start);
+      if (onset.rocMgdlPerMin === null) warnings.add("onset_roc_unavailable");
+      for (const [name, point] of [["last_insulin", lastInsulin], ["first_no_insulin", firstNoInsulin]]) {
+        if (point && point.glucoseMgdl === null) warnings.add(`${name}_glucose_unavailable`);
+        if (point && point.rocMgdlPerMin === null) warnings.add(`${name}_roc_unavailable`);
+      }
+      if (lastInsulin?.outside6h) warnings.add("last_insulin_outside_6h");
+      lastInsulin?.priorContext.qualityWarnings.forEach((warning) => warnings.add(warning));
+      let presentCgm = 0;
+      let gap = 0;
+      let maxGap = 0;
+      for (let index = start - 72; index <= observedEnd; index++) {
+        const bin = binAt(index);
+        if (bin?.glucose != null) {
+          if (index < start) presentCgm++;
+          gap = 0;
+        } else {
+          gap += 5;
+          maxGap = Math.max(maxGap, gap);
+        }
+        bin?.warnings.forEach((warning) => warnings.add(warning));
+      }
+      if (presentCgm < 72) warnings.add("incomplete_cgm_6h");
+      if (lastPositive >= 0 && lastInsulin) bins[lastPositive].warnings.forEach((warning) => warnings.add(warning));
+      results.push({
+        analysisVersion: ANALYSIS_VERSION,
+        eventId: `${ANALYSIS_VERSION}:${format(bins[start].time)}`,
+        sourceFiles: dataset.sourceFiles,
+        sourceCgmFiles: [...new Set(dataset.records.filter((record) => record.kind === "cgm").map((record) => record.sourceFile))],
+        sourceInsulinFiles: [...new Set(dataset.records.filter((record) => record.kind === "insulin").map((record) => record.sourceFile))],
+        timeBasis: dataset.timeBasis,
+        startTime: format(bins[start].time),
+        endTime: end === null ? null : format(bins[end].time),
+        observedThrough: format(bins[observedEnd].time),
+        durationMinutes: end === null ? null : (end - start) * 5,
+        nadirTime: format(bins[nadir].time),
+        nadirGlucoseMgdl: bins[nadir].glucose,
+        level2: bins[nadir].glucose < level2ThresholdMgdl,
+        onset,
+        automatedAnalysisEligible: insulinSemantics !== "bolus_only" && manualPauses.length === 0,
+        manualPauseAffected: manualPauses.length > 0,
+        manualPauses,
+        insulin3h,
+        insulin6h,
+        insulin3To6h,
+        lastInsulin,
+        firstNoInsulin,
+        cessationStatus,
+        quality: {
+          eventTruncated: onsetTruncated || end === null,
+          onsetTruncated,
+          recoveryTruncated: end === null,
+          cgmCoverage6hPct: presentCgm / 72 * 100,
+          maxCgmGapMinutes: maxGap,
+          warnings: [...warnings].sort()
+        },
+        parameters: { ...parameters }
+      });
+    }
+    let lowRun = 0;
+    let recoveryRun = 0;
+    let activeStart = null;
+    for (let index = firstCgm; index <= lastCgm; index++) {
+      const glucose = bins[index].glucose;
+      if (glucose === null) {
+        if (activeStart !== null) finish(activeStart, null, index - 1);
+        activeStart = null;
+        lowRun = recoveryRun = 0;
+      } else if (activeStart === null) {
+        lowRun = glucose < threshold ? lowRun + 1 : 0;
+        if (lowRun >= count) {
+          activeStart = index - count + 1;
+          recoveryRun = 0;
+        }
+      } else {
+        recoveryRun = glucose >= threshold ? recoveryRun + 1 : 0;
+        if (recoveryRun >= count) {
+          const end = index - count + 1;
+          finish(activeStart, end, end - 1);
+          activeStart = null;
+          lowRun = recoveryRun = 0;
+        }
+      }
+    }
+    if (activeStart !== null) finish(activeStart, null, lastCgm);
+    return results;
+  }
+
+  // src/hypoglycemia/export.ts
+  function eventToCsvRow(event) {
+    const last = event.lastInsulin;
+    const zero = event.firstNoInsulin;
+    return {
+      analysis_version: event.analysisVersion,
+      source_cgm_file: event.sourceCgmFiles.join("; "),
+      source_insulin_file: event.sourceInsulinFiles.join("; "),
+      event_id: event.eventId,
+      time_basis: event.timeBasis,
+      event_start: event.startTime,
+      event_end: event.endTime,
+      observed_through: event.observedThrough,
+      duration_minutes: event.durationMinutes,
+      nadir_time: event.nadirTime,
+      nadir_glucose_mgdl: event.nadirGlucoseMgdl,
+      level2_flag: event.level2,
+      automated_analysis_eligible: event.automatedAnalysisEligible,
+      manual_pause_affected_flag: event.manualPauseAffected,
+      manual_pause_times: event.manualPauses.map((pause) => pause.time).join("; "),
+      manual_pause_source_timestamps: event.manualPauses.map((pause) => pause.sourceTimestamp).join("; "),
+      manual_pause_timing: event.manualPauses.map((pause) => pause.timing).join("; "),
+      manual_pause_policy: "exclude_pause_overlapping_6h_lookback_through_recovery",
+      glucose_at_onset_mgdl: event.onset.glucoseMgdl,
+      roc_at_onset_mgdl_per_min: event.onset.rocMgdlPerMin,
+      insulin_3h_units: event.insulin3h.units,
+      insulin_6h_units: event.insulin6h.units,
+      insulin_3h_coverage_pct: event.insulin3h.coveragePct,
+      insulin_6h_coverage_pct: event.insulin6h.coveragePct,
+      last_insulin_time: last?.time ?? null,
+      last_insulin_units: last?.units ?? null,
+      last_insulin_bin_time: last?.binTime ?? null,
+      last_insulin_bin_units: last?.binUnits ?? null,
+      last_insulin_timing: last?.timing ?? null,
+      last_insulin_source_timestamps: last?.sourceTimestamps.join("; ") ?? null,
+      minutes_last_insulin_to_event: last?.minutesBeforeEvent ?? null,
+      last_insulin_outside_6h_flag: last?.outside6h ?? null,
+      glucose_time_at_last_insulin: last?.glucoseTime ?? null,
+      glucose_at_last_insulin_mgdl: last?.glucoseMgdl ?? null,
+      roc_at_last_insulin_mgdl_per_min: last?.rocMgdlPerMin ?? null,
+      pre_last_insulin_method: last?.priorContext.method ?? null,
+      pre_last_insulin_glucose_bin_time: last?.priorContext.glucoseBinTime ?? null,
+      pre_last_insulin_glucose_mgdl: last?.priorContext.glucoseMgdl ?? null,
+      pre_last_insulin_roc_start_bin_time: last?.priorContext.rocStartBinTime ?? null,
+      pre_last_insulin_roc_end_bin_time: last?.priorContext.rocEndBinTime ?? null,
+      pre_last_insulin_roc_mgdl_per_min: last?.priorContext.rocMgdlPerMin ?? null,
+      pre_last_insulin_glucose_bin_to_delivery_minutes: last?.priorContext.glucoseBinToDeliveryMinutes ?? null,
+      pre_last_insulin_glucose_source_timestamps: last?.priorContext.glucoseSourceTimestamps.join("; ") ?? null,
+      pre_last_insulin_roc_start_source_timestamps: last?.priorContext.rocStartSourceTimestamps.join("; ") ?? null,
+      pre_last_insulin_quality_warnings: last?.priorContext.qualityWarnings.join("; ") ?? null,
+      first_no_insulin_time: zero?.time ?? null,
+      first_no_insulin_bin_time: zero?.binTime ?? null,
+      first_no_insulin_timing: zero?.timing ?? null,
+      insulin_cessation_status: event.cessationStatus,
+      first_no_insulin_source_timestamps: zero?.sourceTimestamps.join("; ") ?? null,
+      glucose_time_at_first_no_insulin: zero?.glucoseTime ?? null,
+      glucose_at_first_no_insulin_mgdl: zero?.glucoseMgdl ?? null,
+      roc_at_first_no_insulin_mgdl_per_min: zero?.rocMgdlPerMin ?? null,
+      cgm_coverage_6h_pct: event.quality.cgmCoverage6hPct,
+      max_cgm_gap_minutes: event.quality.maxCgmGapMinutes,
+      event_truncated_flag: event.quality.eventTruncated,
+      onset_truncated_flag: event.quality.onsetTruncated,
+      recovery_truncated_flag: event.quality.recoveryTruncated,
+      quality_warnings: event.quality.warnings.join("; "),
+      low_threshold_mgdl: event.parameters.lowThresholdMgdl,
+      level2_threshold_mgdl: event.parameters.level2ThresholdMgdl,
+      sustained_minutes: event.parameters.sustainedMinutes,
+      recovery_minutes: event.parameters.sustainedMinutes,
+      grid_minutes: 5,
+      max_allowed_missing_bins: 0,
+      insulin_delivery_type: event.parameters.insulinSemantics,
+      duplicate_policy: "cgm_mean_insulin_sum_within_file_cross_file_max_multiplicity"
+    };
+  }
+  var CSV_HEADERS = [
+    "analysis_version",
+    "source_cgm_file",
+    "source_insulin_file",
+    "event_id",
+    "time_basis",
+    "event_start",
+    "event_end",
+    "observed_through",
+    "duration_minutes",
+    "nadir_time",
+    "nadir_glucose_mgdl",
+    "level2_flag",
+    "automated_analysis_eligible",
+    "manual_pause_affected_flag",
+    "manual_pause_times",
+    "manual_pause_source_timestamps",
+    "manual_pause_timing",
+    "manual_pause_policy",
+    "glucose_at_onset_mgdl",
+    "roc_at_onset_mgdl_per_min",
+    "insulin_3h_units",
+    "insulin_6h_units",
+    "insulin_3h_coverage_pct",
+    "insulin_6h_coverage_pct",
+    "last_insulin_time",
+    "last_insulin_units",
+    "last_insulin_bin_time",
+    "last_insulin_bin_units",
+    "last_insulin_timing",
+    "last_insulin_source_timestamps",
+    "minutes_last_insulin_to_event",
+    "last_insulin_outside_6h_flag",
+    "glucose_time_at_last_insulin",
+    "glucose_at_last_insulin_mgdl",
+    "roc_at_last_insulin_mgdl_per_min",
+    "pre_last_insulin_method",
+    "pre_last_insulin_glucose_bin_time",
+    "pre_last_insulin_glucose_mgdl",
+    "pre_last_insulin_roc_start_bin_time",
+    "pre_last_insulin_roc_end_bin_time",
+    "pre_last_insulin_roc_mgdl_per_min",
+    "pre_last_insulin_glucose_bin_to_delivery_minutes",
+    "pre_last_insulin_glucose_source_timestamps",
+    "pre_last_insulin_roc_start_source_timestamps",
+    "pre_last_insulin_quality_warnings",
+    "first_no_insulin_time",
+    "first_no_insulin_bin_time",
+    "first_no_insulin_timing",
+    "insulin_cessation_status",
+    "first_no_insulin_source_timestamps",
+    "glucose_time_at_first_no_insulin",
+    "glucose_at_first_no_insulin_mgdl",
+    "roc_at_first_no_insulin_mgdl_per_min",
+    "cgm_coverage_6h_pct",
+    "max_cgm_gap_minutes",
+    "event_truncated_flag",
+    "onset_truncated_flag",
+    "recovery_truncated_flag",
+    "quality_warnings",
+    "low_threshold_mgdl",
+    "level2_threshold_mgdl",
+    "sustained_minutes",
+    "recovery_minutes",
+    "grid_minutes",
+    "max_allowed_missing_bins",
+    "insulin_delivery_type",
+    "duplicate_policy"
+  ];
+  function exportEventsCsv(events) {
+    const rows = events.map((event) => {
+      const values = eventToCsvRow(event);
+      return CSV_HEADERS.map((header) => {
+        const value = values[header];
+        if (value === null || value === void 0) return "";
+        if (typeof value === "number") return String(Number(value.toFixed(9)));
+        const text = String(value);
+        return typeof value === "string" && /^[\s]*[=+@-]/.test(text) ? `'${text}` : text;
+      });
+    });
+    return serializeCsv({ headers: CSV_HEADERS, rows });
+  }
+
+  // src/hypoglycemia/daily.ts
+  var DAILY_SUMMARY_VERSION = "hypo-daily-v1";
+  var DAY_MS = 864e5;
+  function dayStart(time) {
+    const date = new Date(time);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
+  function rounded(value) {
+    return Number(value.toFixed(9));
+  }
+  function summarizeHypoglycemiaDays(dataset, events, options = {}) {
+    const cgmBins = dataset.bins.filter((bin) => bin.cgmRecords.length > 0);
+    if (!cgmBins.length) return [];
+    const analysisStart = cgmBins[0].time;
+    const analysisEnd = cgmBins[cgmBins.length - 1].time + BIN_MS;
+    const originTime = options.origin ?? formatTimestamp(analysisStart, dataset.timeBasis);
+    const parsedOrigin = parseTimestamp(originTime).time;
+    const startDay = dayStart(analysisStart);
+    const endDay = dayStart(analysisEnd - 1);
+    const thresholds = events[0]?.parameters ?? { lowThresholdMgdl: 70, level2ThresholdMgdl: 54 };
+    const rows = [];
+    for (let dateStart = startDay; dateStart <= endDay; dateStart += DAY_MS) {
+      const dateEnd = dateStart + DAY_MS;
+      const boundedStart = Math.max(dateStart, analysisStart);
+      const boundedEnd = Math.min(dateEnd, analysisEnd);
+      const expectedMinutes = Math.max(0, (boundedEnd - boundedStart) / 6e4);
+      let observedCgmMinutes = 0, below70Minutes = 0, below54Minutes = 0, inRangeMinutes = 0, above180Minutes = 0;
+      let observedInsulinMinutes = 0, insulinUnits = 0, observedInsulinBins = 0;
+      for (const bin of dataset.bins) {
+        const overlap = Math.max(0, Math.min(bin.time + BIN_MS, boundedEnd) - Math.max(bin.time, boundedStart)) / 6e4;
+        if (!overlap) continue;
+        if (bin.glucose !== null) {
+          observedCgmMinutes += overlap;
+          if (bin.glucose < thresholds.lowThresholdMgdl) below70Minutes += overlap;
+          if (bin.glucose < thresholds.level2ThresholdMgdl) below54Minutes += overlap;
+          if (bin.glucose >= thresholds.lowThresholdMgdl && bin.glucose <= 180) inRangeMinutes += overlap;
+          if (bin.glucose > 180) above180Minutes += overlap;
+        }
+        if (bin.insulin !== null) {
+          observedInsulinMinutes += overlap;
+          observedInsulinBins++;
+          insulinUnits += bin.insulin * overlap / 5;
+        }
+      }
+      const dayEvents = events.filter((event) => {
+        const onset = parseTimestamp(event.startTime).time;
+        return onset >= dateStart && onset < dateEnd;
+      });
+      const percent = (minutes) => observedCgmMinutes ? rounded(minutes / observedCgmMinutes * 100) : null;
+      rows.push({
+        date: new Date(dateStart).toISOString().slice(0, 10),
+        timeBasis: dataset.timeBasis,
+        studyId: options.studyId ?? null,
+        episodeId: options.episodeId ?? null,
+        analysisVersion: events[0]?.analysisVersion ?? ANALYSIS_VERSION,
+        contextVersion: "previous_source_bin_v1",
+        summarizationVersion: DAILY_SUMMARY_VERSION,
+        originKind: options.originKind ?? "first_observed_cgm",
+        originTime,
+        elapsedDay: rounded((dateStart - parsedOrigin) / DAY_MS),
+        expectedBinsWithinObservationBounds: expectedMinutes / 5,
+        fullDayExpectedBins: 288,
+        observedCgmBins: observedCgmMinutes / 5,
+        observedCgmMinutes: rounded(observedCgmMinutes),
+        cgmCoveragePct: expectedMinutes ? rounded(observedCgmMinutes / expectedMinutes * 100) : null,
+        boundaryPartialDay: expectedMinutes < 1440,
+        below70Minutes: rounded(below70Minutes),
+        below54Minutes: rounded(below54Minutes),
+        in70To180Minutes: rounded(inRangeMinutes),
+        above180Minutes: rounded(above180Minutes),
+        below70Pct: percent(below70Minutes),
+        below54Pct: percent(below54Minutes),
+        in70To180Pct: percent(inRangeMinutes),
+        above180Pct: percent(above180Minutes),
+        allEventOnsetCount: dayEvents.length,
+        level2OnsetCount: dayEvents.filter((event) => event.level2).length,
+        truncatedOnsetCount: dayEvents.filter((event) => event.quality.onsetTruncated).length,
+        eventRatePer24ObservedHours: observedCgmMinutes ? rounded(dayEvents.length / (observedCgmMinutes / 1440)) : null,
+        observedInsulinUnits: observedInsulinMinutes ? rounded(insulinUnits) : null,
+        observedInsulinBins,
+        insulinCoveragePct: expectedMinutes ? rounded(observedInsulinMinutes / expectedMinutes * 100) : null,
+        lowThresholdMgdl: thresholds.lowThresholdMgdl,
+        level2ThresholdMgdl: thresholds.level2ThresholdMgdl,
+        rangeUpperMgdl: 180
+      });
+    }
+    return rows;
+  }
+  var DAILY_CSV_HEADERS = [
+    "date",
+    "time_basis",
+    "study_id",
+    "episode_id",
+    "analysis_version",
+    "context_version",
+    "summarization_version",
+    "origin_kind",
+    "origin_time",
+    "elapsed_day",
+    "expected_bins_within_observation_bounds",
+    "full_day_expected_bins",
+    "observed_cgm_bins",
+    "observed_cgm_minutes",
+    "cgm_coverage_pct",
+    "boundary_partial_day_flag",
+    "below_70_minutes",
+    "below_54_minutes",
+    "in_70_to_180_minutes",
+    "above_180_minutes",
+    "below_70_pct",
+    "below_54_pct",
+    "in_70_to_180_pct",
+    "above_180_pct",
+    "all_event_onset_count",
+    "level2_onset_count",
+    "truncated_onset_count",
+    "event_rate_per_24_observed_hours",
+    "observed_insulin_units",
+    "observed_insulin_bins",
+    "insulin_coverage_pct",
+    "low_threshold_mgdl",
+    "level2_threshold_mgdl",
+    "range_upper_mgdl"
+  ];
+  function exportDailySummariesCsv(rows) {
+    const keyMap = {
+      time_basis: "timeBasis",
+      study_id: "studyId",
+      episode_id: "episodeId",
+      analysis_version: "analysisVersion",
+      context_version: "contextVersion",
+      summarization_version: "summarizationVersion",
+      origin_kind: "originKind",
+      origin_time: "originTime",
+      elapsed_day: "elapsedDay",
+      expected_bins_within_observation_bounds: "expectedBinsWithinObservationBounds",
+      full_day_expected_bins: "fullDayExpectedBins",
+      observed_cgm_bins: "observedCgmBins",
+      observed_cgm_minutes: "observedCgmMinutes",
+      cgm_coverage_pct: "cgmCoveragePct",
+      boundary_partial_day_flag: "boundaryPartialDay",
+      below_70_minutes: "below70Minutes",
+      below_54_minutes: "below54Minutes",
+      in_70_to_180_minutes: "in70To180Minutes",
+      above_180_minutes: "above180Minutes",
+      below_70_pct: "below70Pct",
+      below_54_pct: "below54Pct",
+      in_70_to_180_pct: "in70To180Pct",
+      above_180_pct: "above180Pct",
+      all_event_onset_count: "allEventOnsetCount",
+      level2_onset_count: "level2OnsetCount",
+      truncated_onset_count: "truncatedOnsetCount",
+      event_rate_per_24_observed_hours: "eventRatePer24ObservedHours",
+      observed_insulin_units: "observedInsulinUnits",
+      observed_insulin_bins: "observedInsulinBins",
+      insulin_coverage_pct: "insulinCoveragePct",
+      low_threshold_mgdl: "lowThresholdMgdl",
+      level2_threshold_mgdl: "level2ThresholdMgdl",
+      range_upper_mgdl: "rangeUpperMgdl",
+      date: "date"
+    };
+    return serializeCsv({ headers: DAILY_CSV_HEADERS, rows: rows.map((row) => DAILY_CSV_HEADERS.map((header) => {
+      const value = row[keyMap[header]];
+      return value === null ? "" : String(value);
+    })) });
+  }
+  return __toCommonJS(index_exports);
+})();
