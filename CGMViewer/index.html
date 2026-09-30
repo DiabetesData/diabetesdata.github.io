@@ -22,8 +22,9 @@
 
 <body>
 
-    <input type="file" id="csvFileInput" accept=".csv" class="hidden-input" />
-    <input type="file" id="insulinFileInput" accept=".csv" class="hidden-input" />
+    <input type="file" id="csvFileInput" accept=".csv,.txt,text/csv,text/plain" class="hidden-input" multiple />
+    <input type="file" id="insulinFileInput" accept=".csv,.txt,text/csv,text/plain" class="hidden-input" multiple />
+    <input type="file" id="dataFolderInput" accept=".csv,.txt,text/csv,text/plain" class="hidden-input" multiple webkitdirectory directory />
     <div class="app-shell">
 
         <div class="app-main">
@@ -34,20 +35,26 @@
                         <summary>Data &amp; files</summary>
                         <div class="header-menu__content data-files-content">
                             <div id="dropzone" class="dropzone-style">
-                                <div id="dropzoneText">Drop a CSV here or choose a file</div>
+                                <div id="dropzoneText">Drop CSV or TXT files here, or choose files</div>
                             </div>
                             <div class="data-file-actions">
-                                <button id="chooseCgmFileBtn" type="button">Upload CSV</button>
+                                <button id="chooseCgmFileBtn" type="button">Choose files</button>
+                                <button id="chooseDataFolderBtn" type="button">Choose folder</button>
                                 <button id="loadExampleCSV" type="button">Try glucose example</button>
                                 <button id="loadPumpExampleCSV" type="button">Try CGM + insulin example</button>
-                                <button id="addInsulinFileBtn" type="button" disabled title="Load a CGM file first, then add a series CSV with insulin rows.">Add insulin file</button>
+                                <button id="addInsulinFileBtn" type="button" disabled title="Load CGM first, then add one or more Series CSV or TXT files with insulin, meal, or event rows.">Add supplemental files</button>
                                 <a href="anonymize.html" class="button-link">Anonymize data</a>
                             </div>
                             <label for="mergePrimaryCgmOnLoad" class="toggle-control">
                                 <input type="checkbox" id="mergePrimaryCgmOnLoad" checked>
                                 Merge with loaded CGM
                             </label>
-                            <p class="supplemental-import-hint">Supplemental files add insulin, meal, and event annotations. Their CGM rows are ignored.</p>
+                            <p class="supplemental-import-hint">Supplemental files add insulin, Pump-reported meals (boluses), and event annotations. Their CGM rows are ignored.</p>
+                            <div id="fileImportProgress" class="file-import-progress hidden" role="status" aria-live="polite">
+                                <progress id="fileImportProgressBar" value="0" max="1"></progress>
+                                <span id="fileImportProgressText">0/0 files processed</span>
+                            </div>
+                            <p id="importStatus" class="import-status" aria-live="polite"></p>
                         </div>
                     </details>
                     <details class="header-menu">
@@ -71,7 +78,7 @@
                         <p><strong>Required:</strong> <code>series</code>, <code>datetime_local</code>, <code>value</code></p>
                         <p><strong>Typical series values:</strong> <code>CGM</code> for glucose rows, values containing <code>insulin</code> for insulin rows, <code>meal announcement</code> for meal markers, and <code>event</code> for pump or system events.</p>
                         <p><strong>Optional columns:</strong> <code>annotation_kind</code>, <code>tooltip_text</code>, <code>annotation_text_clean</code>, <code>annotation_text_raw</code>, <code>meal_type</code>, <code>meal_size_descriptor</code>, <code>event_type</code>.</p>
-                        <p>This format can be used either as a combined glucose plus insulin file or, after a CGM file is loaded, as an insulin-only supplemental file.</p>
+                        <p>This format can be used either as a combined file or, after CGM is loaded, as a supplemental file containing insulin, pump-reported meals, or event annotations.</p>
                     </div>
                     <div class="data-format-card">
                         <h4>Simple Glucose CSV</h4>
@@ -90,6 +97,7 @@
 
             <div id="cgmDataInfo" class="dataset-strip" aria-live="polite"></div>
 
+            <div class="workspace-navigation">
             <nav class="workspace-tabs" aria-label="Analysis workspace">
                 <button type="button" class="workspace-tab" data-mode-value="summary" aria-selected="true">Overview</button>
                 <button type="button" class="workspace-tab" data-mode-value="meal" aria-selected="false">Meals</button>
@@ -112,6 +120,11 @@
                     <option value="hypo-analysis">Hypoglycemia Analysis</option>
                 </select>
             </nav>
+            <div id="analysisNextStepHint" class="analysis-next-step-hint hidden">
+                <p role="status">Data loaded. Try <strong>Meals</strong> to find glucose rises, or <strong>Hypoglycemia</strong> to review low-glucose events. Choose a tab above to get started.</p>
+                <button id="dismissAnalysisNextStepHint" type="button" aria-label="Dismiss analysis suggestion">&times;</button>
+            </div>
+            </div>
 
             <section id="mealWorkspace" class="meal-workspace hidden" aria-labelledby="mealWorkspaceTitle">
                 <div class="meal-workspace__heading">
@@ -120,7 +133,9 @@
                         <p>Find glucose rises consistent with meals. The target is an average across analyzed days, not a guaranteed count each day.</p>
                     </div>
                     <div class="meal-find-controls">
-                        <label for="targetMealsPerDay">Target meals/day</label>
+                        <label for="optimizationObjective">Optimize for</label>
+                        <select id="optimizationObjective"><option value="target" selected>Target meals/day</option><option value="reports">Match pump-reported meals</option></select>
+                        <label id="targetMealsPerDayLabel" for="targetMealsPerDay">Target meals/day</label>
                         <input type="number" id="targetMealsPerDay" value="3" step="0.1" min="0.1">
                         <button id="findMealsBtn" type="button" class="primary-command">Find meals</button>
                     </div>
@@ -139,6 +154,11 @@
                             <option value="whole" selected>Whole dataset</option>
                             <option value="visible">Visible window</option>
                         </select>
+                        <div id="mealReportMatchSettings" class="parameter-group hidden">
+                            <p>Matching follows meal-detect-core's greedy nearest-neighbor algorithm. The default cutoff is ±60 minutes. Unknown coverage can favor missing unreported meals.</p>
+                            <label for="mealMatchCutoffMinutes">Symmetric cutoff (± minutes)</label>
+                            <input id="mealMatchCutoffMinutes" type="number" min="0" step="5" value="60">
+                        </div>
                         <div id="parameter-controls" class="parameter-group">
                             <label for="triggerRate">Trigger rate (mg/dL/min)</label>
                             <input type="number" id="triggerRate" value="1.0" step="0.1" min="0">
@@ -157,7 +177,6 @@
                         </div>
                     </div>
                 </details>
-                <select id="optimizationObjective" class="hidden-input" aria-hidden="true"><option value="target" selected>Target meals/day</option></select>
                 <button id="btnOptimizeParams" type="button" class="hidden">Run optimization</button>
                 <button id="btnOptimizationGraphs" type="button" class="hidden">Optimization graphs</button>
                 <div class="hidden" aria-hidden="true">
@@ -331,6 +350,7 @@
                     <summary>Exports</summary>
                     <div class="review-exports__content">
                         <button id="hypoDailyDownload" type="button" disabled>Download daily summaries CSV</button>
+                        <button id="pumpMealReportsDownload" type="button" disabled>Download pump-meal reports CSV</button>
                         <button id="hypoAnalysisDownload" type="button" disabled>Download 0 events CSV</button>
                     </div>
                 </details>
@@ -405,7 +425,7 @@
                 <button id="hypoTrendDownload" type="button">Download plotted rows CSV</button>
             </div>
             <div class="hypo-analysis__trend-controls">
-                <label>View<select id="hypoTrendMode"><option value="over_time">Metric over time</option><option value="daily_counts">Detected events per day</option></select></label>
+                <label>View<select id="hypoTrendMode"><option value="over_time">Metric over time</option><option value="daily_counts">Hypoglycemia events/day</option><option value="pump_meal_daily_counts">Pump-reported meals/day</option><option value="combined_daily_counts">Meals &amp; hypoglycemia/day</option></select></label>
                 <label>Metric<select id="hypoTrendMetric"></select></label>
                 <label>Time axis<select id="hypoTrendTimeBasis"><option value="calendar">Calendar time</option><option value="elapsed_days">Elapsed days</option></select></label>
                 <label>Origin<input id="hypoTrendOrigin" type="datetime-local" step="60"></label>
@@ -478,7 +498,7 @@
             <input type="text" id="datepicker" readonly placeholder="Choose date">
             <button id="nextWindowBtn" type="button">Next window</button>
             <label for="daysToDisplay">Days</label>
-            <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="2" step="1">
+            <input type="number" id="daysToDisplay" name="daysToDisplay" min="1" max="90" value="7" step="1">
             <details class="chart-options">
                 <summary>Chart options</summary>
                 <div class="chart-options__content">

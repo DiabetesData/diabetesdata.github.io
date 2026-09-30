@@ -39,6 +39,53 @@ var MealReviewBundle = (() => {
     return [table.headers, ...table.rows].map((row) => row.map(encode).join(",")).join("\r\n") + "\r\n";
   }
 
+  // src/anonymize/date-mapping.ts
+  function parseLocalDateTime(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+    if (!match) return null;
+    return validateParts({
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+      hour: Number(match[4]),
+      minute: Number(match[5]),
+      second: Number(match[6] ?? 0),
+      includedSeconds: match[6] !== void 0
+    });
+  }
+  function validateParts(parts) {
+    if (parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour < 0 || parts.hour > 23 || parts.minute < 0 || parts.minute > 59 || parts.second < 0 || parts.second > 59) {
+      return null;
+    }
+    const candidate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    if (candidate.getUTCFullYear() !== parts.year || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) {
+      return null;
+    }
+    return parts;
+  }
+
+  // src/hypoglycemia/types.ts
+  var BIN_MS = 5 * 6e4;
+
+  // src/hypoglycemia/normalize.ts
+  function parseTimestamp(value) {
+    const match = /^(.*?)(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})?$/.exec(value.trim());
+    const parts = parseLocalDateTime(match[1]);
+    if (!parts) throw new Error(`Invalid timestamp: ${value}`);
+    let time2 = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    if (match[2]) time2 += Number(match[2].padEnd(3, "0"));
+    const suffix = match[3];
+    if (suffix && suffix !== "Z") {
+      const hours = Number(suffix.slice(1, 3));
+      const minutes = Number(suffix.slice(4, 6));
+      if (hours > 14 || minutes > 59 || hours === 14 && minutes !== 0) {
+        throw new Error(`Invalid timestamp offset: ${value}`);
+      }
+      time2 -= (suffix[0] === "-" ? -1 : 1) * (hours * 60 + minutes) * 6e4;
+    }
+    return { time: time2, basis: suffix ? "utc" : "local_unspecified" };
+  }
+
   // src/meal-analysis/grid.ts
   function formatMealTimestamp(time2, basis) {
     const iso = new Date(time2).toISOString();
@@ -66,6 +113,23 @@ var MealReviewBundle = (() => {
     { key: "analysis_start", description: "First retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.startMs) },
     { key: "analysis_end", description: "Last retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.endMs) },
     { key: "target_meals_per_day", description: "Requested optimization target; blank for parameter-only runs.", value: (run) => run.targetMealsPerDay },
+    { key: "optimization_objective", description: "Target-count or pump-report matching objective.", value: (run) => run.optimizationObjective },
+    { key: "optimization_score", description: "Winning meal-detect-core distance-weighted score for report matching.", value: (run) => run.optimizationScore },
+    { key: "matched_report_count", description: "One-to-one matched eligible reports.", value: (run) => run.matchedReportCount },
+    { key: "unmatched_detection_count", description: "Eligible detections without a report match.", value: (run) => run.unmatchedDetectionCount },
+    { key: "unmatched_report_count", description: "Eligible reports without a detection match.", value: (run) => run.unmatchedReportCount },
+    { key: "eligible_report_count", description: "Reports with usable CGM context.", value: (run) => run.eligibleReportCount },
+    { key: "excluded_report_count", description: "Reports excluded from scoring.", value: (run) => run.excludedReportCount },
+    { key: "excluded_report_reasons", description: "Pipe-separated report exclusion reasons.", value: (run) => run.excludedReportReasons.join("|") },
+    { key: "report_coverage_status", description: "Imported pump-report coverage status.", value: (run) => run.reportCoverageStatus },
+    { key: "report_coverage_basis", description: "Basis for report coverage status.", value: (run) => run.reportCoverageBasis },
+    { key: "report_policy_version", description: "Canonical report extraction policy.", value: (run) => run.reportPolicyVersion },
+    { key: "matching_version", description: "One-to-one matching policy version.", value: (run) => run.matchingVersion },
+    { key: "scoring_version", description: "Optimization scoring policy version.", value: (run) => run.scoringVersion },
+    { key: "reference_eligibility_version", description: "CGM eligibility policy version.", value: (run) => run.referenceEligibilityVersion },
+    { key: "match_tolerance_before_minutes", description: "Inclusive detection lead tolerance.", value: (run) => run.matchToleranceBeforeMinutes },
+    { key: "match_tolerance_after_minutes", description: "Inclusive detection lag tolerance.", value: (run) => run.matchToleranceAfterMinutes },
+    { key: "optimizer_matches", description: "Stable report/detection assignments as report_id@offset.", value: (run) => run.optimizerMatches.map((match) => `${match.reportId}@${match.offsetMinutes}`).join("|") },
     { key: "achieved_meals_per_day", description: "Detected count divided by observed analysis days.", value: (run) => run.achievedMealsPerDay },
     { key: "analyzed_day_count", description: "Distinct source-calendar days with valid unmasked CGM.", value: (run) => run.analyzedDayCount },
     { key: "run_detected_count", description: "Total events in the complete run.", value: (run) => run.detectedCount },
@@ -143,11 +207,63 @@ var MealReviewBundle = (() => {
       const Chart = window.Chart;
       const context = canvas.getContext("2d");
       if (!Chart || !context) return false;
-      if (model.mode === "daily_counts") {
-        const counts = model.dailyRows.map((row) => ({ x: row.xValue, y: row.eventCount, row }));
+      if (model.mode !== "over_time") {
+        const combined = model.mode === "combined_daily_counts";
+        const points = (rows, average2 = false) => rows.map((row) => ({
+          x: row.xValue,
+          y: average2 ? row.trailingAverage : row.eventCount,
+          row
+        }));
+        const counts = model.dailyRows.filter((row) => row.eventCount !== null).map((row) => ({ x: row.xValue, y: row.eventCount, row }));
         const average = model.dailyRows.filter((row) => row.trailingAverage !== null).map((row) => ({ x: row.xValue, y: row.trailingAverage, row }));
-        this.chart = new Chart(context, { type: "bar", data: { datasets: [
-          { type: "bar", label: "Detected events per day", data: counts, backgroundColor: "rgba(36, 87, 167, .55)", borderColor: "#2457a7", borderWidth: 1 },
+        const datasets = combined ? [
+          {
+            type: "bar",
+            label: "Pump-reported meals/day",
+            data: points(model.pumpMealDailyRows ?? []),
+            backgroundColor: "rgba(36, 87, 167, .3)",
+            borderColor: "#2457a7",
+            borderWidth: 1,
+            order: 3
+          },
+          {
+            type: "line",
+            label: "Hypoglycemia events/day",
+            data: points(model.dailyRows),
+            borderColor: "#d55e00",
+            backgroundColor: "#d55e00",
+            borderWidth: 2,
+            pointRadius: 3,
+            pointStyle: "triangle",
+            tension: 0,
+            order: 2
+          },
+          {
+            type: "line",
+            label: `${model.movingAverageDays}-day average: pump meals`,
+            data: points(model.pumpMealDailyRows ?? [], true),
+            borderColor: "#2457a7",
+            borderWidth: 3,
+            borderDash: [8, 4],
+            pointRadius: 0,
+            tension: 0,
+            spanGaps: false,
+            order: 1
+          },
+          {
+            type: "line",
+            label: `${model.movingAverageDays}-day average: hypoglycemia`,
+            data: points(model.dailyRows, true),
+            borderColor: "#d55e00",
+            borderWidth: 3,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            tension: 0,
+            spanGaps: false,
+            order: 0
+          }
+        ] : [
+          { type: "bar", label: model.dailyMetricLabel ?? "Daily count", data: counts, backgroundColor: "rgba(36, 87, 167, .55)", borderColor: "#2457a7", borderWidth: 1 },
           {
             type: "line",
             label: `${model.movingAverageDays}-day trailing average`,
@@ -158,11 +274,13 @@ var MealReviewBundle = (() => {
             pointRadius: 2,
             tension: 0
           }
-        ] }, options: {
+        ];
+        this.chart = new Chart(context, { type: "bar", data: { datasets }, options: {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
           parsing: false,
+          interaction: combined ? { mode: "index", intersect: false } : void 0,
           plugins: { legend: { display: true }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw.row.date} \xB7 ${ctx.dataset.label}: ${Number(ctx.raw.y.toFixed(3))}` } } },
           scales: {
             x: {
@@ -170,7 +288,7 @@ var MealReviewBundle = (() => {
               title: { display: true, text: model.timeBasis === "calendar" ? "Source-calendar day" : "Elapsed days from origin" },
               ticks: model.timeBasis === "calendar" ? { callback: (value) => new Date(value).toISOString().slice(0, 10) } : {}
             },
-            y: { beginAtZero: true, title: { display: true, text: "Detected event onsets per day" } }
+            y: { beginAtZero: true, title: { display: true, text: combined ? "Count per day" : model.dailyMetricLabel ?? "Daily count" } }
           }
         } });
         return true;
@@ -223,53 +341,6 @@ var MealReviewBundle = (() => {
     }
   };
 
-  // src/anonymize/date-mapping.ts
-  function parseLocalDateTime(value) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
-    if (!match) return null;
-    return validateParts({
-      year: Number(match[1]),
-      month: Number(match[2]),
-      day: Number(match[3]),
-      hour: Number(match[4]),
-      minute: Number(match[5]),
-      second: Number(match[6] ?? 0),
-      includedSeconds: match[6] !== void 0
-    });
-  }
-  function validateParts(parts) {
-    if (parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour < 0 || parts.hour > 23 || parts.minute < 0 || parts.minute > 59 || parts.second < 0 || parts.second > 59) {
-      return null;
-    }
-    const candidate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-    if (candidate.getUTCFullYear() !== parts.year || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) {
-      return null;
-    }
-    return parts;
-  }
-
-  // src/hypoglycemia/types.ts
-  var BIN_MS = 5 * 6e4;
-
-  // src/hypoglycemia/normalize.ts
-  function parseTimestamp(value) {
-    const match = /^(.*?)(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})?$/.exec(value.trim());
-    const parts = parseLocalDateTime(match[1]);
-    if (!parts) throw new Error(`Invalid timestamp: ${value}`);
-    let time2 = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-    if (match[2]) time2 += Number(match[2].padEnd(3, "0"));
-    const suffix = match[3];
-    if (suffix && suffix !== "Z") {
-      const hours = Number(suffix.slice(1, 3));
-      const minutes = Number(suffix.slice(4, 6));
-      if (hours > 14 || minutes > 59 || hours === 14 && minutes !== 0) {
-        throw new Error(`Invalid timestamp offset: ${value}`);
-      }
-      time2 -= (suffix[0] === "-" ? -1 : 1) * (hours * 60 + minutes) * 6e4;
-    }
-    return { time: time2, basis: suffix ? "utc" : "local_unspecified" };
-  }
-
   // src/event-trends/model.ts
   function buildEventTrendModel(options) {
     const origin = parseTimestamp(options.origin);
@@ -318,7 +389,10 @@ var MealReviewBundle = (() => {
       unavailable,
       rows,
       dailyRows: [],
-      movingAverageDays: null
+      movingAverageDays: null,
+      dailyMetricKey: null,
+      dailyMetricLabel: null,
+      dailyMetricUnits: null
     };
   }
   var DAY_MS = 864e5;
@@ -353,7 +427,9 @@ var MealReviewBundle = (() => {
         date: new Date(day).toISOString().slice(0, 10),
         xValue: options.timeBasis === "calendar" ? day : (day - origin) / DAY_MS,
         eventCount,
-        trailingAverage
+        trailingAverage,
+        availabilityStatus: "available",
+        qualityFlags: []
       });
     }
     return {
@@ -366,7 +442,10 @@ var MealReviewBundle = (() => {
       unavailable: 0,
       rows: [],
       dailyRows,
-      movingAverageDays
+      movingAverageDays,
+      dailyMetricKey: "hypoglycemia_event_count",
+      dailyMetricLabel: "Detected events per day",
+      dailyMetricUnits: "events"
     };
   }
   var TREND_CSV_HEADERS = [
@@ -387,26 +466,68 @@ var MealReviewBundle = (() => {
     "quality_flags"
   ];
   function exportTrendCsv(model) {
-    if (model.mode === "daily_counts") {
+    if (model.mode === "combined_daily_counts") {
+      const meals = new Map(model.pumpMealDailyRows?.map((row) => [row.date, row]));
+      const value = (n) => n == null ? "" : String(n);
+      return serializeCsv({
+        headers: [
+          "date",
+          "hypoglycemia_event_count",
+          "pump_meal_report_count",
+          "hypoglycemia_trailing_average",
+          "pump_meal_trailing_average",
+          "moving_average_days",
+          "time_basis",
+          "x_value",
+          "origin_kind",
+          "origin",
+          "pump_meal_availability_status",
+          "pump_meal_quality_flags"
+        ],
+        rows: model.dailyRows.map((row) => {
+          const meal = meals.get(row.date);
+          return [
+            row.date,
+            value(row.eventCount),
+            value(meal?.eventCount),
+            value(row.trailingAverage),
+            value(meal?.trailingAverage),
+            String(model.movingAverageDays),
+            model.timeBasis,
+            String(row.xValue),
+            model.originKind,
+            model.origin,
+            meal?.availabilityStatus ?? "unavailable",
+            meal?.qualityFlags.join("; ") ?? ""
+          ];
+        })
+      });
+    }
+    if (model.mode === "daily_counts" || model.mode === "pump_meal_daily_counts") {
+      const countHeader = model.mode === "daily_counts" ? "event_count" : model.dailyMetricKey ?? "value";
       const headers = [
         "date",
-        "event_count",
+        countHeader,
         "trailing_average",
         "moving_average_days",
         "time_basis",
         "x_value",
         "origin_kind",
-        "origin"
+        "origin",
+        "availability_status",
+        "quality_flags"
       ];
       return serializeCsv({ headers, rows: model.dailyRows.map((row) => [
         row.date,
-        String(row.eventCount),
+        row.eventCount === null ? "" : String(row.eventCount),
         row.trailingAverage === null ? "" : String(row.trailingAverage),
         String(model.movingAverageDays),
         model.timeBasis,
         String(row.xValue),
         model.originKind,
-        model.origin
+        model.origin,
+        row.availabilityStatus,
+        row.qualityFlags.join("; ")
       ]) });
     }
     return serializeCsv({ headers: TREND_CSV_HEADERS, rows: model.rows.map((row) => [

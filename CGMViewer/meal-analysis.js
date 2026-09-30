@@ -21,43 +21,56 @@ var MealAnalysis = (() => {
   // src/meal-analysis/index.ts
   var index_exports = {};
   __export(index_exports, {
+    DEFAULT_MATCH_CUTOFF_MINUTES: () => DEFAULT_MATCH_CUTOFF_MINUTES,
     DEFAULT_MEAL_PARAMS: () => DEFAULT_MEAL_PARAMS,
     MEAL_ANALYSIS_VERSION: () => MEAL_ANALYSIS_VERSION,
     MEAL_BIN_MS: () => MEAL_BIN_MS,
     MEAL_DETECTOR_VERSION: () => MEAL_DETECTOR_VERSION,
     MEAL_EVENT_CSV_COLUMNS: () => MEAL_EVENT_CSV_COLUMNS,
     MEAL_GRID_VERSION: () => MEAL_GRID_VERSION,
+    MEAL_MATCHING_VERSION: () => MEAL_MATCHING_VERSION,
+    MEAL_MATCH_SCORE_VERSION: () => MEAL_MATCH_SCORE_VERSION,
     MEAL_METRIC_VERSION: () => MEAL_METRIC_VERSION,
     MEAL_OPTIMIZATION_TOTAL: () => MEAL_OPTIMIZATION_TOTAL,
+    MEAL_REFERENCE_ELIGIBILITY_VERSION: () => MEAL_REFERENCE_ELIGIBILITY_VERSION,
     applyMealExclusions: () => applyMealExclusions,
     beginMealSourceImport: () => beginMealSourceImport,
     buildGridFromLegacyRows: () => buildGridFromLegacyRows,
     buildMealEvents: () => buildMealEvents,
     buildMealGrid: () => buildMealGrid,
+    buildMealRunFromOptimizedParams: () => buildMealRunFromOptimizedParams,
     buildOptimizedMealRun: () => buildOptimizedMealRun,
     buildParameterMealRun: () => buildParameterMealRun,
     commitMealSourceImport: () => commitMealSourceImport,
     compareMealOptimizationRows: () => compareMealOptimizationRows,
+    compareReportMatchRows: () => compareReportMatchRows,
     createMealSourceState: () => createMealSourceState,
     defaultMealOptimizationGrid: () => defaultMealOptimizationGrid,
     detectLegacyRows: () => detectLegacyRows,
     detectMeals: () => detectMeals,
     detectionToLegacyResult: () => detectionToLegacyResult,
+    eligibleMealDetections: () => eligibleMealDetections,
+    eligiblePumpMealReports: () => eligiblePumpMealReports,
     formatMealTimestamp: () => formatMealTimestamp,
     gridForMealScope: () => gridForMealScope,
+    matchPumpReports: () => matchPumpReports,
     mealRunToCsv: () => mealRunToCsv,
     optimizeMealParams: () => optimizeMealParams,
+    optimizeMealParamsAgainstReports: () => optimizeMealParamsAgainstReports,
     parseMealSource: () => parseMealSource,
     parseMealTimestamp: () => parseMealTimestamp,
+    scoreReportMatches: () => scoreReportMatches,
     summarizeMeal: () => summarizeMeal
   });
 
   // src/meal-analysis/types.ts
   var MEAL_BIN_MS = 5 * 6e4;
   var MEAL_DETECTOR_VERSION = "meal-detector-v1";
-  var MEAL_GRID_VERSION = "meal-grid-v1";
+  var MEAL_GRID_VERSION = "meal-grid-v2";
   var MEAL_METRIC_VERSION = "meal-metrics-v1";
   var MEAL_ANALYSIS_VERSION = "meal-analysis-v1";
+  var MEAL_MATCHING_VERSION = "meal-detect-core-nearest-neighbor-v1";
+  var MEAL_REFERENCE_ELIGIBILITY_VERSION = "meal-reference-eligibility-v1";
 
   // src/anonymize/csv.ts
   function parseCsv(csvText) {
@@ -134,6 +147,165 @@ var MealAnalysis = (() => {
     return { headers, rows };
   }
 
+  // src/pump-meals/types.ts
+  var PUMP_MEAL_REPORT_POLICY_VERSION = "pump-meal-reports-v1";
+
+  // src/hypoglycemia/types.ts
+  var BIN_MS = 5 * 6e4;
+
+  // src/hypoglycemia/normalize.ts
+  function formatTimestamp(time2, basis) {
+    const iso = new Date(time2).toISOString();
+    return basis === "utc" ? iso : iso.slice(0, 19);
+  }
+
+  // src/pump-meals/extract.ts
+  function clean(value) {
+    return (value ?? "").trim();
+  }
+  function normalized(value) {
+    return clean(value).toLowerCase().replace(/[\s_-]+/g, " ");
+  }
+  function isPumpMealRecord(record) {
+    return record.series.toLowerCase().includes("meal announcement") || normalized(record.metadata.annotation_kind) === "meal";
+  }
+  function normalizePumpMealSize(value) {
+    const key = normalized(value);
+    if (key === "less than usual") return "less_than_usual";
+    if (key === "usual") return "usual";
+    if (key === "more than usual") return "more_than_usual";
+    if (key === "small") return "small";
+    if (key === "medium") return "medium";
+    if (key === "large") return "large";
+    return "unknown";
+  }
+  function stableHash(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  function candidate(record) {
+    const metadata = record.metadata;
+    const mealType = clean(metadata.meal_type);
+    const rawSize = clean(metadata.meal_size_descriptor);
+    const size = normalizePumpMealSize(rawSize);
+    const descriptiveLabel = [metadata.tooltip_text, metadata.annotation_text_clean, metadata.annotation_text_raw].map(clean).find(Boolean);
+    const label = descriptiveLabel || [mealType, rawSize].filter(Boolean).join(", ") || "Reported meal";
+    const traceIndex = clean(metadata.source_trace_index);
+    const traceName = clean(metadata.source_trace_name);
+    const pointIndex = clean(metadata.source_point_index);
+    const pointIdentity = pointIndex ? JSON.stringify([traceIndex, traceName, pointIndex]) : "";
+    const effectiveTime = record.reportedTime ?? record.time;
+    const warnings = [];
+    if (record.reportedTime === null) warnings.push(clean(metadata.reported_datetime_local) ? "invalid_reported_timestamp_source_fallback" : "source_timestamp_fallback");
+    if (size === "unknown") warnings.push(rawSize ? "unrecognized_size_descriptor" : "missing_size_descriptor");
+    return {
+      record,
+      effectiveTime,
+      mealType,
+      rawSize,
+      size,
+      label,
+      pointIdentity,
+      contentIdentity: JSON.stringify([record.time, normalized(mealType), normalized(rawSize), normalized(label)]),
+      detailScore: (record.reportedTime === null ? 0 : 8) + (pointIndex ? 4 : 0) + (mealType ? 2 : 0) + (rawSize ? 2 : 0) + (label === "Reported meal" ? 0 : 3),
+      warnings
+    };
+  }
+  function compatibleType(left, right) {
+    return !left.mealType || !right.mealType || normalized(left.mealType) === normalized(right.mealType);
+  }
+  function duplicateAcrossSources(left, right) {
+    if (left.record.sourceFileIndex === right.record.sourceFileIndex) return false;
+    if (left.pointIdentity && right.pointIdentity && left.pointIdentity === right.pointIdentity) return true;
+    if (!compatibleType(left, right)) return false;
+    if (left.record.reportedTime !== null && right.record.reportedTime !== null)
+      return left.record.reportedTime === right.record.reportedTime;
+    if (left.contentIdentity === right.contentIdentity) return true;
+    return Math.floor(left.record.time / BIN_MS) === Math.floor(right.record.time / BIN_MS) && (left.record.reportedTime !== null || right.record.reportedTime !== null) && normalized(left.mealType) !== "" && normalized(left.mealType) === normalized(right.mealType);
+  }
+  function sourceReference(item) {
+    const metadata = item.record.metadata;
+    return {
+      sourceFile: item.record.sourceFile,
+      sourceFileIndex: item.record.sourceFileIndex,
+      row: item.record.row,
+      sourceTimestamp: item.record.sourceTimestamp,
+      sourceTraceIndex: clean(metadata.source_trace_index) || null,
+      sourceTraceName: clean(metadata.source_trace_name) || null,
+      sourcePointIndex: clean(metadata.source_point_index) || null
+    };
+  }
+  function mergeGroup(group, timeBasis) {
+    const ranked = [...group].sort((a, b) => b.detailScore - a.detailScore || a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const selected = ranked[0];
+    const typeValues = [...new Set(group.map((item) => clean(item.mealType)).filter(Boolean))];
+    const sizeValues = [...new Set(group.map((item) => clean(item.rawSize)).filter(Boolean))];
+    const conflictDetails = [];
+    if (typeValues.map((value) => normalized(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_meal_type");
+    if (sizeValues.map((value) => normalizePumpMealSize(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_size_descriptor");
+    const normalizedSize = conflictDetails.includes("conflicting_size_descriptor") ? "unknown" : selected.size;
+    const effectiveTimes = [...new Set(group.map((item) => item.effectiveTime))];
+    if (effectiveTimes.length > 1) conflictDetails.push("merged_source_and_precise_times");
+    const identity = JSON.stringify([
+      selected.effectiveTime,
+      normalized(selected.mealType),
+      normalizedSize,
+      group.map((item) => item.pointIdentity || item.contentIdentity).sort()
+    ]);
+    const sourceReferences = group.map(sourceReference).sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.row - b.row);
+    const warnings = [...new Set(group.flatMap((item) => item.warnings).concat(conflictDetails))].sort();
+    return {
+      reportId: `pump-meal-${stableHash(identity)}`,
+      sourceReferences,
+      sourceTimestamp: selected.record.sourceTimestamp,
+      reportedTimestamp: selected.record.reportedTime === null ? null : formatTimestamp(selected.record.reportedTime, timeBasis),
+      effectiveTimestamp: formatTimestamp(selected.effectiveTime, timeBasis),
+      effectiveTime: selected.effectiveTime,
+      timeBasis,
+      timingQuality: selected.record.reportedTime === null ? "source_timestamp_fallback" : "precise_reported_time",
+      mealType: conflictDetails.includes("conflicting_meal_type") ? "" : selected.mealType,
+      rawSizeDescriptor: conflictDetails.includes("conflicting_size_descriptor") ? sizeValues.join(" | ") : selected.rawSize,
+      normalizedSize,
+      label: selected.label,
+      duplicateCount: group.length - 1,
+      duplicateDetails: group.length > 1 ? ["overlapping_source_representation_merged"] : [],
+      conflictDetails,
+      warnings,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+  function extractPumpMealReports(dataset) {
+    const candidates = dataset.records.filter(isPumpMealRecord).map(candidate).sort((a, b) => a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const groups = [];
+    for (const item of candidates) {
+      const group = groups.find((existing) => existing.some((member) => duplicateAcrossSources(member, item)));
+      if (group) group.push(item);
+      else groups.push([item]);
+    }
+    const reports = groups.map((group) => mergeGroup(group, dataset.timeBasis)).sort((a, b) => a.effectiveTime - b.effectiveTime || a.reportId.localeCompare(b.reportId));
+    const idOccurrences = /* @__PURE__ */ new Map();
+    for (const report of reports) {
+      const occurrence = (idOccurrences.get(report.reportId) ?? 0) + 1;
+      idOccurrences.set(report.reportId, occurrence);
+      if (occurrence > 1) report.reportId = `${report.reportId}-${occurrence}`;
+    }
+    const recognized = candidates.length > 0;
+    const qualityFlags = [...new Set(reports.flatMap((report) => report.warnings))].sort();
+    return {
+      reports,
+      coverageStatus: recognized ? "unknown" : "unavailable",
+      coverageBasis: recognized ? "recognized report-capable source; completeness not declared" : "no recognized report source or coverage declaration",
+      qualityFlags,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+
   // src/meal-analysis/grid.ts
   function parseDateParts(value) {
     const iso = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?$/.exec(value);
@@ -150,10 +322,10 @@ var MealAnalysis = (() => {
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second;
   }
   function parseMealTimestamp(value) {
-    const normalized = value.trim();
-    const suffixMatch = /(Z|[+-]\d{2}:\d{2})$/i.exec(normalized);
+    const normalized2 = value.trim();
+    const suffixMatch = /(Z|[+-]\d{2}:\d{2})$/i.exec(normalized2);
     const suffix = suffixMatch?.[1];
-    const base = suffix ? normalized.slice(0, -suffix.length) : normalized;
+    const base = suffix ? normalized2.slice(0, -suffix.length) : normalized2;
     const parts = parseDateParts(base);
     if (!parts || !validParts(parts)) throw new Error(`Invalid timestamp: ${value}`);
     let time2 = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5], parts[6]);
@@ -180,8 +352,8 @@ var MealAnalysis = (() => {
     }
     const lines = text.split(/\r?\n/);
     const index = lines.findIndex((line) => {
-      const normalized = line.toLowerCase();
-      return normalized.includes("device timestamp") && normalized.includes("record type") && normalized.includes("historic glucose mg/dl");
+      const normalized2 = line.toLowerCase();
+      return normalized2.includes("device timestamp") && normalized2.includes("record type") && normalized2.includes("historic glucose mg/dl");
     });
     if (index < 0) throw new Error("Libre headers were not found.");
     const table = parseCsv(lines.slice(index).join("\n"));
@@ -212,7 +384,7 @@ var MealAnalysis = (() => {
       includedInAnalysis: true
     });
   }
-  function addReference(source, output, row, timestampText, label) {
+  function addReference(source, output, row, timestampText, label, detailScore, mealTypeKey, reportedTimestampText) {
     let parsed;
     try {
       parsed = parseMealTimestamp(timestampText);
@@ -221,11 +393,29 @@ var MealAnalysis = (() => {
     }
     if (output.basis && output.basis !== parsed.basis) throw new Error(`${source.name}: mixed timestamp bases.`);
     output.basis = parsed.basis;
-    output.references.push({ sourceId: source.id, sourceName: source.name, row, sourceTimestamp: timestampText, time: parsed.time, label });
+    let reportedTime = null;
+    if (reportedTimestampText.trim()) {
+      try {
+        const reported = parseMealTimestamp(reportedTimestampText);
+        if (reported.basis === parsed.basis) reportedTime = reported.time;
+      } catch {
+      }
+    }
+    output.references.push({
+      sourceId: source.id,
+      sourceName: source.name,
+      row,
+      sourceTimestamp: timestampText,
+      time: parsed.time,
+      label,
+      detailScore,
+      mealTypeKey,
+      reportedTime
+    });
   }
-  function parseMealSource(source) {
+  function parseMealSource(source, sourceFileIndex = 0) {
     const { headers, rows, headerRow } = findHeaderRow(source.text, source.format);
-    const output = { basis: null, cgm: [], references: [] };
+    const output = { basis: null, cgm: [], references: [], mealRecords: [] };
     if (source.format === "dexcom") {
       const timestamp = requiredIndex(headers, "timestamp (yyyy-mm-ddthh:mm:ss)", source);
       const glucose = requiredIndex(headers, "glucose value (mg/dl)", source);
@@ -253,12 +443,59 @@ var MealAnalysis = (() => {
       const value = requiredIndex(headers, "value", source);
       const annotationKind = headers.indexOf("annotation_kind");
       const mealType = headers.indexOf("meal_type");
+      const mealSize = headers.indexOf("meal_size_descriptor");
+      const mealTime = headers.indexOf("meal_time_text");
+      const tooltip = headers.indexOf("tooltip_text");
+      const annotationClean = headers.indexOf("annotation_text_clean");
+      const annotationRaw = headers.indexOf("annotation_text_raw");
+      const reportedTimestamp = headers.indexOf("reported_datetime_local");
+      const sourcePoint = headers.indexOf("source_point_index");
       rows.forEach((row, index) => {
         const category = (row[series] ?? "").trim().toLowerCase();
         if (source.kind === "primary" && category === "cgm") addCgm(source, output, headerRow + index + 1, row[timestamp] ?? "", row[value] ?? "");
         const annotation = annotationKind >= 0 ? (row[annotationKind] ?? "").trim().toLowerCase() : "";
         if (category.includes("meal announcement") || annotation === "meal") {
-          addReference(source, output, headerRow + index + 1, row[timestamp] ?? "", mealType >= 0 ? row[mealType] ?? "Reported meal" : "Reported meal");
+          const type = mealType >= 0 ? (row[mealType] ?? "").trim() : "";
+          const size = mealSize >= 0 ? (row[mealSize] ?? "").trim() : "";
+          const timeText = mealTime >= 0 ? (row[mealTime] ?? "").trim() : "";
+          const descriptiveLabel = [tooltip, annotationClean, annotationRaw].map((column) => column >= 0 ? (row[column] ?? "").trim() : "").find(Boolean) ?? "";
+          const fallbackLabel = [type, size].filter(Boolean).join(", ");
+          const label = descriptiveLabel || fallbackLabel || "Reported meal";
+          const reportedText = reportedTimestamp >= 0 ? row[reportedTimestamp] ?? "" : "";
+          const detailScore = (descriptiveLabel ? 3 : 0) + (type ? 2 : 0) + (size ? 2 : 0) + (timeText ? 1 : 0) + (reportedText.trim() ? 4 : 0) + (sourcePoint >= 0 && (row[sourcePoint] ?? "").trim() ? 1 : 0);
+          addReference(
+            source,
+            output,
+            headerRow + index + 1,
+            row[timestamp] ?? "",
+            label,
+            detailScore,
+            type.toLowerCase(),
+            reportedText
+          );
+          const parsedSourceTime = parseMealTimestamp(row[timestamp] ?? "");
+          let canonicalReportedTime = null;
+          if (reportedText.trim()) try {
+            const reported = parseMealTimestamp(reportedText);
+            if (reported.basis === parsedSourceTime.basis && reported.time >= parsedSourceTime.time && reported.time < parsedSourceTime.time + MEAL_BIN_MS) canonicalReportedTime = reported.time;
+          } catch {
+          }
+          const metadata = Object.fromEntries(headers.map((header, column) => [header, row[column] ?? ""]));
+          output.mealRecords.push({
+            sourceFile: source.name,
+            sourceFileIndex,
+            reportedTime: canonicalReportedTime,
+            includedInAnalysis: true,
+            row: headerRow + index + 1,
+            sourceTimestamp: row[timestamp] ?? "",
+            time: parsedSourceTime.time,
+            series: row[series] ?? "",
+            kind: "annotation",
+            value: null,
+            trace: metadata.source_trace_index || metadata.source_trace_name || "",
+            eventType: metadata.event_type || "",
+            metadata
+          });
         }
       });
     }
@@ -269,7 +506,7 @@ var MealAnalysis = (() => {
   }
   function buildMealGrid(sources) {
     if (!sources.some((source) => source.kind === "primary")) throw new Error("Load a primary CGM source.");
-    const parsed = sources.map(parseMealSource);
+    const parsed = sources.map((source, index) => parseMealSource(source, index));
     const bases = new Set(parsed.map((result) => result.basis).filter((basis) => basis !== null));
     if (bases.size > 1) throw new Error("Cannot mix offset-free and offset-aware timestamps.");
     const timeBasis = [...bases][0];
@@ -316,13 +553,28 @@ var MealAnalysis = (() => {
     if (conflictingBinCount) warnings.add("conflicting_cgm_observations_averaged");
     if (invalidObservationCount) warnings.add("invalid_cgm_observations_excluded");
     if (timeBasis === "local_unspecified") warnings.add("timezone_unspecified_wall_clock_arithmetic");
+    const reportSet = extractPumpMealReports({ timeBasis, records: parsed.flatMap((result) => result.mealRecords) });
+    const references = reportSet.reports.map((report) => ({
+      sourceId: report.sourceReferences[0]?.sourceFile ?? report.reportId,
+      sourceName: report.sourceReferences[0]?.sourceFile ?? "",
+      row: report.sourceReferences[0]?.row ?? 0,
+      sourceTimestamp: report.sourceTimestamp,
+      time: report.effectiveTime,
+      label: report.label,
+      reportId: report.reportId
+    }));
+    if (reportSet.reports.some((report) => report.duplicateCount > 0)) warnings.add("duplicate_meal_references_preferred_richer");
     return {
       gridVersion: MEAL_GRID_VERSION,
       exclusionRevision: 0,
       timeBasis,
       sourceIds: sources.map((source) => source.id),
       bins,
-      references: parsed.flatMap((result) => result.references).sort((a, b) => a.time - b.time),
+      references,
+      pumpMealReports: reportSet.reports,
+      pumpMealCoverageStatus: reportSet.coverageStatus,
+      pumpMealCoverageBasis: reportSet.coverageBasis,
+      pumpMealPolicyVersion: reportSet.policyVersion,
       validDayKeys: [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => dayKey(bin.time)))],
       warnings: [...warnings],
       duplicateObservationCount,
@@ -385,9 +637,9 @@ var MealAnalysis = (() => {
       if (baseline === null) continue;
       const confirmationEnd = Math.min(bins.length - 1, index + confirmBins);
       let confirmationIndex = -1;
-      for (let candidate = index; candidate <= confirmationEnd; candidate++) {
-        if (glucose[candidate] !== null && glucose[candidate] - baseline >= params.mustIncrease) {
-          confirmationIndex = candidate;
+      for (let candidate2 = index; candidate2 <= confirmationEnd; candidate2++) {
+        if (glucose[candidate2] !== null && glucose[candidate2] - baseline >= params.mustIncrease) {
+          confirmationIndex = candidate2;
           break;
         }
       }
@@ -395,17 +647,17 @@ var MealAnalysis = (() => {
       const peakEnd = Math.min(bins.length - 1, onsetIndex + confirmBins + 12);
       let peakIndex = onsetIndex;
       let peak = baseline;
-      for (let candidate = onsetIndex; candidate <= peakEnd; candidate++) {
-        if (glucose[candidate] !== null && glucose[candidate] > peak) {
-          peak = glucose[candidate];
-          peakIndex = candidate;
+      for (let candidate2 = onsetIndex; candidate2 <= peakEnd; candidate2++) {
+        if (glucose[candidate2] !== null && glucose[candidate2] > peak) {
+          peak = glucose[candidate2];
+          peakIndex = candidate2;
         }
       }
       const areaEnd = Math.min(bins.length - 1, onsetIndex + 24);
       let area2h = 0;
-      for (let candidate = onsetIndex + 1; candidate <= areaEnd; candidate++) {
-        const left = glucose[candidate - 1];
-        const right = glucose[candidate];
+      for (let candidate2 = onsetIndex + 1; candidate2 <= areaEnd; candidate2++) {
+        const left = glucose[candidate2 - 1];
+        const right = glucose[candidate2];
         if (left !== null && right !== null) area2h += (left + right) * 0.5 * 5;
       }
       const warnings = missingStreakBins ? ["missing_observation_in_accepted_streak"] : [];
@@ -435,7 +687,7 @@ var MealAnalysis = (() => {
       value: Number.isFinite(Number(row.GlucoseValue)) ? Number(row.GlucoseValue) : null,
       index
     })).filter((row) => Number.isFinite(row.time)).sort((a, b) => a.time - b.time);
-    if (!parsed.length) return { gridVersion: "legacy-worker-grid-v1", exclusionRevision: 0, timeBasis: "utc", sourceIds: ["legacy"], bins: [], references: [], validDayKeys: [], warnings: [], duplicateObservationCount: 0, conflictingBinCount: 0, invalidObservationCount: 0 };
+    if (!parsed.length) return { gridVersion: "legacy-worker-grid-v1", exclusionRevision: 0, timeBasis: "utc", sourceIds: ["legacy"], bins: [], references: [], pumpMealReports: [], pumpMealCoverageStatus: "unavailable", pumpMealCoverageBasis: "legacy rows contain no report source", pumpMealPolicyVersion: "pump-meal-reports-v1", validDayKeys: [], warnings: [], duplicateObservationCount: 0, conflictingBinCount: 0, invalidObservationCount: 0 };
     const start = Math.floor(parsed[0].time / MEAL_BIN_MS) * MEAL_BIN_MS;
     const end = Math.ceil(parsed[parsed.length - 1].time / MEAL_BIN_MS) * MEAL_BIN_MS;
     const bins = Array.from({ length: (end - start) / MEAL_BIN_MS + 1 }, (_, index) => ({ time: start + index * MEAL_BIN_MS, glucose: null, observations: [], warnings: [] }));
@@ -457,6 +709,10 @@ var MealAnalysis = (() => {
       sourceIds: ["legacy"],
       bins,
       references: [],
+      pumpMealReports: [],
+      pumpMealCoverageStatus: "unavailable",
+      pumpMealCoverageBasis: "legacy rows contain no report source",
+      pumpMealPolicyVersion: "pump-meal-reports-v1",
       validDayKeys: [...new Set(bins.filter((bin) => bin.glucose !== null).map((bin) => new Date(bin.time).toISOString().slice(0, 10)))],
       warnings: [],
       duplicateObservationCount: 0,
@@ -651,6 +907,72 @@ var MealAnalysis = (() => {
     });
   }
 
+  // src/meal-analysis/matching.ts
+  var MEAL_MATCH_SCORE_VERSION = "meal-detect-core-score-v1";
+  var DEFAULT_MATCH_CUTOFF_MINUTES = 60;
+  function usableAt(grid, time2) {
+    const values = new Map(grid.bins.map((bin) => [bin.time, bin.glucose]));
+    const origin = grid.bins[0]?.time ?? time2;
+    const alignedTime = origin + Math.floor((time2 - origin) / MEAL_BIN_MS) * MEAL_BIN_MS;
+    for (let offset = -MEAL_BIN_MS; offset <= 60 * 6e4; offset += MEAL_BIN_MS) {
+      if (values.get(alignedTime + offset) === null || !values.has(alignedTime + offset)) return false;
+    }
+    return true;
+  }
+  function eligiblePumpMealReports(grid, scope) {
+    const eligible = [];
+    const reasons = [];
+    for (const report of grid.pumpMealReports) {
+      if (report.effectiveTime < scope.startMs || report.effectiveTime > scope.endMs) reasons.push(`${report.reportId}:outside_scope`);
+      else if (!usableAt(grid, report.effectiveTime)) reasons.push(`${report.reportId}:insufficient_continuous_cgm`);
+      else eligible.push(report);
+    }
+    return { eligible, excludedCount: reasons.length, reasons, version: MEAL_REFERENCE_ELIGIBILITY_VERSION };
+  }
+  function eligibleMealDetections(grid, detections) {
+    return detections.filter((detection) => usableAt(grid, detection.t0));
+  }
+  function matchPumpReports(reportRows, detections, cutoffMinutes = DEFAULT_MATCH_CUTOFF_MINUTES) {
+    const reports = reportRows.map((report, inputIndex) => ({ report, inputIndex })).sort((a, b) => a.report.effectiveTime - b.report.effectiveTime || a.inputIndex - b.inputIndex);
+    const detected = detections.map((detection, inputIndex) => ({ detection, inputIndex })).sort((a, b) => a.detection.t0 - b.detection.t0 || a.inputIndex - b.inputIndex);
+    const used = /* @__PURE__ */ new Set();
+    const matches = [];
+    for (const { report } of reports) {
+      let nearestIndex = -1;
+      let nearestDistance = Infinity;
+      let nearestOffset = 0;
+      for (let index = 0; index < detected.length; index++) {
+        if (used.has(index)) continue;
+        const offset = (detected[index].detection.t0 - report.effectiveTime) / 6e4;
+        const distance = Math.abs(offset);
+        if (distance < nearestDistance) {
+          nearestIndex = index;
+          nearestDistance = distance;
+          nearestOffset = offset;
+        }
+      }
+      if (nearestIndex < 0 || nearestDistance > cutoffMinutes) continue;
+      used.add(nearestIndex);
+      matches.push({
+        reportId: report.reportId,
+        reportTime: report.effectiveTime,
+        detectionTime: detected[nearestIndex].detection.t0,
+        offsetMinutes: nearestOffset
+      });
+    }
+    return matches;
+  }
+  function scoreReportMatches(referenceCount, detectionCount, matches, cutoffMinutes = DEFAULT_MATCH_CUTOFF_MINUTES) {
+    if (!referenceCount) return 0;
+    const matchedScore = matches.reduce((total, match) => {
+      const distance = Math.abs(match.offsetMinutes);
+      return total + (distance === 0 ? 1 : 1 - distance / cutoffMinutes);
+    }, 0);
+    const missedReportPenalty = referenceCount - matches.length;
+    const unmatchedDetectionPenalty = detectionCount - matches.length;
+    return (matchedScore - missedReportPenalty - unmatchedDetectionPenalty) / referenceCount;
+  }
+
   // src/meal-analysis/optimize.ts
   var MEAL_OPTIMIZATION_TOTAL = 800;
   function defaultMealOptimizationGrid() {
@@ -687,7 +1009,7 @@ var MealAnalysis = (() => {
     }
     const analyzedDayCount = grid.validDayKeys.length;
     if (!grid.bins.length || analyzedDayCount < 1) throw new Error("The meal analysis scope contains no valid CGM observations.");
-    const candidates = defaultMealOptimizationGrid();
+    const candidates = options.candidates ?? defaultMealOptimizationGrid();
     const rows = [];
     for (let index = 0; index < candidates.length; index++) {
       if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
@@ -701,9 +1023,47 @@ var MealAnalysis = (() => {
     rows.sort(compareMealOptimizationRows);
     return { best: rows[0], rows, analyzedDayCount };
   }
+  function compareReportMatchRows(left, right) {
+    return right.score - left.score || (right.matchedReports ?? 0) - (left.matchedReports ?? 0) || (left.unmatchedReports ?? 0) - (right.unmatchedReports ?? 0) || (left.unmatchedDetections ?? 0) - (right.unmatchedDetections ?? 0) || left.numConsecutiveIncrease - right.numConsecutiveIncrease || left.mustIncrease - right.mustIncrease || left.triggerRateMgdlPerMin - right.triggerRateMgdlPerMin || left.mealBlockoutMinutes - right.mealBlockoutMinutes;
+  }
+  function optimizeMealParamsAgainstReports(grid, scope, options) {
+    if (!Number.isFinite(options.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES) || (options.cutoffMinutes ?? 0) < 0) {
+      throw new Error("Meal-report match cutoff must be a non-negative finite number.");
+    }
+    const references = eligiblePumpMealReports(grid, scope);
+    if (!references.eligible.length) throw new Error("Match pump-reported meals is unavailable because no eligible reports have continuous CGM context.");
+    const cutoffMinutes = options.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES;
+    const candidates = options.candidates ?? defaultMealOptimizationGrid();
+    const rows = [];
+    for (let index = 0; index < candidates.length; index++) {
+      if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
+      const params = candidates[index];
+      const allDetections = detectMeals(grid, params);
+      const detections = eligibleMealDetections(grid, allDetections);
+      const matches = matchPumpReports(references.eligible, detections, cutoffMinutes);
+      const score = scoreReportMatches(references.eligible.length, detections.length, matches, cutoffMinutes);
+      rows.push({
+        ...params,
+        objective: "match_pump_reports",
+        detectedCount: allDetections.length,
+        achievedMealsPerDay: allDetections.length / Math.max(1, grid.validDayKeys.length),
+        countPenalty: 0,
+        score,
+        matchedReports: matches.length,
+        unmatchedDetections: detections.length - matches.length,
+        unmatchedReports: references.eligible.length - matches.length,
+        eligibleDetectionCount: detections.length,
+        eligibleReportCount: references.eligible.length
+      });
+      options.onProgress?.({ evaluated: index + 1, total: candidates.length });
+    }
+    rows.sort(compareReportMatchRows);
+    return { best: rows[0], rows, analyzedDayCount: grid.validDayKeys.length };
+  }
   function buildOptimizedMealRun(fullGrid, options) {
     const detectionGrid = gridForMealScope(fullGrid, options.scope);
-    const optimization = optimizeMealParams(detectionGrid, options);
+    const reportMode = "objective" in options && options.objective === "match_pump_reports";
+    const optimization = reportMode ? optimizeMealParamsAgainstReports(detectionGrid, options.scope, options) : optimizeMealParams(detectionGrid, options);
     if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
     const params = {
       triggerRateMgdlPerMin: optimization.best.triggerRateMgdlPerMin,
@@ -712,8 +1072,40 @@ var MealAnalysis = (() => {
       numConsecutiveIncrease: optimization.best.numConsecutiveIncrease,
       confirmWindowMinutes: optimization.best.confirmWindowMinutes
     };
+    return { run: buildMealRunFromOptimizedParams(fullGrid, options, params), optimization };
+  }
+  function buildMealRunFromOptimizedParams(fullGrid, options, params) {
+    const detectionGrid = gridForMealScope(fullGrid, options.scope);
+    const reportMode = "objective" in options && options.objective === "match_pump_reports";
     const run = buildParameterMealRun(fullGrid, { ...options, params, targetMealsPerDay: null });
-    return { run: { ...run, targetMealsPerDay: options.targetMealsPerDay }, optimization };
+    if (!reportMode) return {
+      ...run,
+      optimizationObjective: "target_meals_per_day",
+      targetMealsPerDay: options.targetMealsPerDay
+    };
+    const reportOptions = options;
+    const referenceSet = eligiblePumpMealReports(detectionGrid, options.scope);
+    const eligibleDetections = eligibleMealDetections(detectionGrid, detectMeals(detectionGrid, params));
+    const cutoffMinutes = reportOptions.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES;
+    const matches = matchPumpReports(referenceSet.eligible, eligibleDetections, cutoffMinutes);
+    return {
+      ...run,
+      optimizationObjective: "match_pump_reports",
+      targetMealsPerDay: null,
+      matchingVersion: MEAL_MATCHING_VERSION,
+      scoringVersion: MEAL_MATCH_SCORE_VERSION,
+      referenceEligibilityVersion: referenceSet.version,
+      matchToleranceBeforeMinutes: cutoffMinutes,
+      matchToleranceAfterMinutes: cutoffMinutes,
+      eligibleReportCount: referenceSet.eligible.length,
+      excludedReportCount: referenceSet.excludedCount,
+      excludedReportReasons: referenceSet.reasons,
+      matchedReportCount: matches.length,
+      unmatchedDetectionCount: eligibleDetections.length - matches.length,
+      unmatchedReportCount: referenceSet.eligible.length - matches.length,
+      optimizationScore: scoreReportMatches(referenceSet.eligible.length, eligibleDetections.length, matches, cutoffMinutes),
+      optimizerMatches: matches
+    };
   }
   function buildParameterMealRun(fullGrid, options) {
     const detectionGrid = gridForMealScope(fullGrid, options.scope);
@@ -732,6 +1124,7 @@ var MealAnalysis = (() => {
       timeBasis: fullGrid.timeBasis,
       scope: { ...options.scope },
       targetMealsPerDay: options.targetMealsPerDay ?? null,
+      optimizationObjective: "parameter_only",
       params,
       analyzedDayCount,
       detectedCount: events.length,
@@ -739,6 +1132,22 @@ var MealAnalysis = (() => {
       sourceIds: [...fullGrid.sourceIds],
       analysisBounds: { startMs: detectionGrid.bins[0].time, endMs: detectionGrid.bins[detectionGrid.bins.length - 1].time },
       gridWarnings: [...fullGrid.warnings],
+      reportCoverageStatus: fullGrid.pumpMealCoverageStatus,
+      reportCoverageBasis: fullGrid.pumpMealCoverageBasis,
+      reportPolicyVersion: fullGrid.pumpMealPolicyVersion,
+      matchingVersion: null,
+      scoringVersion: null,
+      referenceEligibilityVersion: null,
+      matchToleranceBeforeMinutes: null,
+      matchToleranceAfterMinutes: null,
+      eligibleReportCount: null,
+      excludedReportCount: null,
+      excludedReportReasons: [],
+      matchedReportCount: null,
+      unmatchedDetectionCount: null,
+      unmatchedReportCount: null,
+      optimizationScore: null,
+      optimizerMatches: [],
       events
     };
     return run;
@@ -765,6 +1174,23 @@ var MealAnalysis = (() => {
     { key: "analysis_start", description: "First retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.startMs) },
     { key: "analysis_end", description: "Last retained grid bin analyzed.", value: (run) => time(run, run.analysisBounds.endMs) },
     { key: "target_meals_per_day", description: "Requested optimization target; blank for parameter-only runs.", value: (run) => run.targetMealsPerDay },
+    { key: "optimization_objective", description: "Target-count or pump-report matching objective.", value: (run) => run.optimizationObjective },
+    { key: "optimization_score", description: "Winning meal-detect-core distance-weighted score for report matching.", value: (run) => run.optimizationScore },
+    { key: "matched_report_count", description: "One-to-one matched eligible reports.", value: (run) => run.matchedReportCount },
+    { key: "unmatched_detection_count", description: "Eligible detections without a report match.", value: (run) => run.unmatchedDetectionCount },
+    { key: "unmatched_report_count", description: "Eligible reports without a detection match.", value: (run) => run.unmatchedReportCount },
+    { key: "eligible_report_count", description: "Reports with usable CGM context.", value: (run) => run.eligibleReportCount },
+    { key: "excluded_report_count", description: "Reports excluded from scoring.", value: (run) => run.excludedReportCount },
+    { key: "excluded_report_reasons", description: "Pipe-separated report exclusion reasons.", value: (run) => run.excludedReportReasons.join("|") },
+    { key: "report_coverage_status", description: "Imported pump-report coverage status.", value: (run) => run.reportCoverageStatus },
+    { key: "report_coverage_basis", description: "Basis for report coverage status.", value: (run) => run.reportCoverageBasis },
+    { key: "report_policy_version", description: "Canonical report extraction policy.", value: (run) => run.reportPolicyVersion },
+    { key: "matching_version", description: "One-to-one matching policy version.", value: (run) => run.matchingVersion },
+    { key: "scoring_version", description: "Optimization scoring policy version.", value: (run) => run.scoringVersion },
+    { key: "reference_eligibility_version", description: "CGM eligibility policy version.", value: (run) => run.referenceEligibilityVersion },
+    { key: "match_tolerance_before_minutes", description: "Inclusive detection lead tolerance.", value: (run) => run.matchToleranceBeforeMinutes },
+    { key: "match_tolerance_after_minutes", description: "Inclusive detection lag tolerance.", value: (run) => run.matchToleranceAfterMinutes },
+    { key: "optimizer_matches", description: "Stable report/detection assignments as report_id@offset.", value: (run) => run.optimizerMatches.map((match) => `${match.reportId}@${match.offsetMinutes}`).join("|") },
     { key: "achieved_meals_per_day", description: "Detected count divided by observed analysis days.", value: (run) => run.achievedMealsPerDay },
     { key: "analyzed_day_count", description: "Distinct source-calendar days with valid unmasked CGM.", value: (run) => run.analyzedDayCount },
     { key: "run_detected_count", description: "Total events in the complete run.", value: (run) => run.detectedCount },
@@ -840,7 +1266,7 @@ var MealAnalysis = (() => {
 
   // src/meal-analysis/source-state.ts
   function createMealSourceState() {
-    return { primary: [], supplemental: null, grid: null, revision: 0, latestGeneration: 0 };
+    return { primary: [], supplemental: [], grid: null, revision: 0, latestGeneration: 0 };
   }
   function beginMealSourceImport(state) {
     const token = state.latestGeneration + 1;
@@ -850,8 +1276,8 @@ var MealAnalysis = (() => {
     if (update.token !== state.latestGeneration) return state;
     const source = { id: `${update.kind}-${update.token}`, name: update.name, text: update.text, kind: update.kind, format: update.format };
     const primary = update.kind === "primary" ? update.merge ? [...state.primary, source] : [source] : state.primary;
-    const supplemental = update.kind === "supplemental" ? source : update.kind === "primary" ? null : state.supplemental;
-    const grid = buildMealGrid([...primary, ...supplemental ? [supplemental] : []]);
+    const supplemental = update.kind === "supplemental" ? update.merge ? [...state.supplemental, source] : [source] : update.kind === "primary" ? [] : state.supplemental;
+    const grid = buildMealGrid([...primary, ...supplemental]);
     return { ...state, primary, supplemental, grid, revision: state.revision + 1 };
   }
   return __toCommonJS(index_exports);

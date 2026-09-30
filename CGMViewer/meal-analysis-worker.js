@@ -5,6 +5,8 @@
   var MEAL_DETECTOR_VERSION = "meal-detector-v1";
   var MEAL_METRIC_VERSION = "meal-metrics-v1";
   var MEAL_ANALYSIS_VERSION = "meal-analysis-v1";
+  var MEAL_MATCHING_VERSION = "meal-detect-core-nearest-neighbor-v1";
+  var MEAL_REFERENCE_ELIGIBILITY_VERSION = "meal-reference-eligibility-v1";
 
   // src/meal-analysis/detect.ts
   var DEFAULT_MEAL_PARAMS = {
@@ -263,6 +265,72 @@
     });
   }
 
+  // src/meal-analysis/matching.ts
+  var MEAL_MATCH_SCORE_VERSION = "meal-detect-core-score-v1";
+  var DEFAULT_MATCH_CUTOFF_MINUTES = 60;
+  function usableAt(grid, time) {
+    const values = new Map(grid.bins.map((bin) => [bin.time, bin.glucose]));
+    const origin = grid.bins[0]?.time ?? time;
+    const alignedTime = origin + Math.floor((time - origin) / MEAL_BIN_MS) * MEAL_BIN_MS;
+    for (let offset = -MEAL_BIN_MS; offset <= 60 * 6e4; offset += MEAL_BIN_MS) {
+      if (values.get(alignedTime + offset) === null || !values.has(alignedTime + offset)) return false;
+    }
+    return true;
+  }
+  function eligiblePumpMealReports(grid, scope) {
+    const eligible = [];
+    const reasons = [];
+    for (const report of grid.pumpMealReports) {
+      if (report.effectiveTime < scope.startMs || report.effectiveTime > scope.endMs) reasons.push(`${report.reportId}:outside_scope`);
+      else if (!usableAt(grid, report.effectiveTime)) reasons.push(`${report.reportId}:insufficient_continuous_cgm`);
+      else eligible.push(report);
+    }
+    return { eligible, excludedCount: reasons.length, reasons, version: MEAL_REFERENCE_ELIGIBILITY_VERSION };
+  }
+  function eligibleMealDetections(grid, detections) {
+    return detections.filter((detection) => usableAt(grid, detection.t0));
+  }
+  function matchPumpReports(reportRows, detections, cutoffMinutes = DEFAULT_MATCH_CUTOFF_MINUTES) {
+    const reports = reportRows.map((report, inputIndex) => ({ report, inputIndex })).sort((a, b) => a.report.effectiveTime - b.report.effectiveTime || a.inputIndex - b.inputIndex);
+    const detected = detections.map((detection, inputIndex) => ({ detection, inputIndex })).sort((a, b) => a.detection.t0 - b.detection.t0 || a.inputIndex - b.inputIndex);
+    const used = /* @__PURE__ */ new Set();
+    const matches = [];
+    for (const { report } of reports) {
+      let nearestIndex = -1;
+      let nearestDistance = Infinity;
+      let nearestOffset = 0;
+      for (let index = 0; index < detected.length; index++) {
+        if (used.has(index)) continue;
+        const offset = (detected[index].detection.t0 - report.effectiveTime) / 6e4;
+        const distance = Math.abs(offset);
+        if (distance < nearestDistance) {
+          nearestIndex = index;
+          nearestDistance = distance;
+          nearestOffset = offset;
+        }
+      }
+      if (nearestIndex < 0 || nearestDistance > cutoffMinutes) continue;
+      used.add(nearestIndex);
+      matches.push({
+        reportId: report.reportId,
+        reportTime: report.effectiveTime,
+        detectionTime: detected[nearestIndex].detection.t0,
+        offsetMinutes: nearestOffset
+      });
+    }
+    return matches;
+  }
+  function scoreReportMatches(referenceCount, detectionCount, matches, cutoffMinutes = DEFAULT_MATCH_CUTOFF_MINUTES) {
+    if (!referenceCount) return 0;
+    const matchedScore = matches.reduce((total, match) => {
+      const distance = Math.abs(match.offsetMinutes);
+      return total + (distance === 0 ? 1 : 1 - distance / cutoffMinutes);
+    }, 0);
+    const missedReportPenalty = referenceCount - matches.length;
+    const unmatchedDetectionPenalty = detectionCount - matches.length;
+    return (matchedScore - missedReportPenalty - unmatchedDetectionPenalty) / referenceCount;
+  }
+
   // src/meal-analysis/optimize.ts
   function defaultMealOptimizationGrid() {
     const result = [];
@@ -298,7 +366,7 @@
     }
     const analyzedDayCount = grid.validDayKeys.length;
     if (!grid.bins.length || analyzedDayCount < 1) throw new Error("The meal analysis scope contains no valid CGM observations.");
-    const candidates = defaultMealOptimizationGrid();
+    const candidates = options.candidates ?? defaultMealOptimizationGrid();
     const rows = [];
     for (let index = 0; index < candidates.length; index++) {
       if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
@@ -312,9 +380,47 @@
     rows.sort(compareMealOptimizationRows);
     return { best: rows[0], rows, analyzedDayCount };
   }
+  function compareReportMatchRows(left, right) {
+    return right.score - left.score || (right.matchedReports ?? 0) - (left.matchedReports ?? 0) || (left.unmatchedReports ?? 0) - (right.unmatchedReports ?? 0) || (left.unmatchedDetections ?? 0) - (right.unmatchedDetections ?? 0) || left.numConsecutiveIncrease - right.numConsecutiveIncrease || left.mustIncrease - right.mustIncrease || left.triggerRateMgdlPerMin - right.triggerRateMgdlPerMin || left.mealBlockoutMinutes - right.mealBlockoutMinutes;
+  }
+  function optimizeMealParamsAgainstReports(grid, scope, options) {
+    if (!Number.isFinite(options.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES) || (options.cutoffMinutes ?? 0) < 0) {
+      throw new Error("Meal-report match cutoff must be a non-negative finite number.");
+    }
+    const references = eligiblePumpMealReports(grid, scope);
+    if (!references.eligible.length) throw new Error("Match pump-reported meals is unavailable because no eligible reports have continuous CGM context.");
+    const cutoffMinutes = options.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES;
+    const candidates = options.candidates ?? defaultMealOptimizationGrid();
+    const rows = [];
+    for (let index = 0; index < candidates.length; index++) {
+      if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
+      const params = candidates[index];
+      const allDetections = detectMeals(grid, params);
+      const detections = eligibleMealDetections(grid, allDetections);
+      const matches = matchPumpReports(references.eligible, detections, cutoffMinutes);
+      const score = scoreReportMatches(references.eligible.length, detections.length, matches, cutoffMinutes);
+      rows.push({
+        ...params,
+        objective: "match_pump_reports",
+        detectedCount: allDetections.length,
+        achievedMealsPerDay: allDetections.length / Math.max(1, grid.validDayKeys.length),
+        countPenalty: 0,
+        score,
+        matchedReports: matches.length,
+        unmatchedDetections: detections.length - matches.length,
+        unmatchedReports: references.eligible.length - matches.length,
+        eligibleDetectionCount: detections.length,
+        eligibleReportCount: references.eligible.length
+      });
+      options.onProgress?.({ evaluated: index + 1, total: candidates.length });
+    }
+    rows.sort(compareReportMatchRows);
+    return { best: rows[0], rows, analyzedDayCount: grid.validDayKeys.length };
+  }
   function buildOptimizedMealRun(fullGrid, options) {
     const detectionGrid = gridForMealScope(fullGrid, options.scope);
-    const optimization = optimizeMealParams(detectionGrid, options);
+    const reportMode = "objective" in options && options.objective === "match_pump_reports";
+    const optimization = reportMode ? optimizeMealParamsAgainstReports(detectionGrid, options.scope, options) : optimizeMealParams(detectionGrid, options);
     if (options.isCancelled?.()) throw new Error("Meal analysis cancelled.");
     const params = {
       triggerRateMgdlPerMin: optimization.best.triggerRateMgdlPerMin,
@@ -323,8 +429,40 @@
       numConsecutiveIncrease: optimization.best.numConsecutiveIncrease,
       confirmWindowMinutes: optimization.best.confirmWindowMinutes
     };
+    return { run: buildMealRunFromOptimizedParams(fullGrid, options, params), optimization };
+  }
+  function buildMealRunFromOptimizedParams(fullGrid, options, params) {
+    const detectionGrid = gridForMealScope(fullGrid, options.scope);
+    const reportMode = "objective" in options && options.objective === "match_pump_reports";
     const run = buildParameterMealRun(fullGrid, { ...options, params, targetMealsPerDay: null });
-    return { run: { ...run, targetMealsPerDay: options.targetMealsPerDay }, optimization };
+    if (!reportMode) return {
+      ...run,
+      optimizationObjective: "target_meals_per_day",
+      targetMealsPerDay: options.targetMealsPerDay
+    };
+    const reportOptions = options;
+    const referenceSet = eligiblePumpMealReports(detectionGrid, options.scope);
+    const eligibleDetections = eligibleMealDetections(detectionGrid, detectMeals(detectionGrid, params));
+    const cutoffMinutes = reportOptions.cutoffMinutes ?? DEFAULT_MATCH_CUTOFF_MINUTES;
+    const matches = matchPumpReports(referenceSet.eligible, eligibleDetections, cutoffMinutes);
+    return {
+      ...run,
+      optimizationObjective: "match_pump_reports",
+      targetMealsPerDay: null,
+      matchingVersion: MEAL_MATCHING_VERSION,
+      scoringVersion: MEAL_MATCH_SCORE_VERSION,
+      referenceEligibilityVersion: referenceSet.version,
+      matchToleranceBeforeMinutes: cutoffMinutes,
+      matchToleranceAfterMinutes: cutoffMinutes,
+      eligibleReportCount: referenceSet.eligible.length,
+      excludedReportCount: referenceSet.excludedCount,
+      excludedReportReasons: referenceSet.reasons,
+      matchedReportCount: matches.length,
+      unmatchedDetectionCount: eligibleDetections.length - matches.length,
+      unmatchedReportCount: referenceSet.eligible.length - matches.length,
+      optimizationScore: scoreReportMatches(referenceSet.eligible.length, eligibleDetections.length, matches, cutoffMinutes),
+      optimizerMatches: matches
+    };
   }
   function buildParameterMealRun(fullGrid, options) {
     const detectionGrid = gridForMealScope(fullGrid, options.scope);
@@ -343,6 +481,7 @@
       timeBasis: fullGrid.timeBasis,
       scope: { ...options.scope },
       targetMealsPerDay: options.targetMealsPerDay ?? null,
+      optimizationObjective: "parameter_only",
       params,
       analyzedDayCount,
       detectedCount: events.length,
@@ -350,6 +489,22 @@
       sourceIds: [...fullGrid.sourceIds],
       analysisBounds: { startMs: detectionGrid.bins[0].time, endMs: detectionGrid.bins[detectionGrid.bins.length - 1].time },
       gridWarnings: [...fullGrid.warnings],
+      reportCoverageStatus: fullGrid.pumpMealCoverageStatus,
+      reportCoverageBasis: fullGrid.pumpMealCoverageBasis,
+      reportPolicyVersion: fullGrid.pumpMealPolicyVersion,
+      matchingVersion: null,
+      scoringVersion: null,
+      referenceEligibilityVersion: null,
+      matchToleranceBeforeMinutes: null,
+      matchToleranceAfterMinutes: null,
+      eligibleReportCount: null,
+      excludedReportCount: null,
+      excludedReportReasons: [],
+      matchedReportCount: null,
+      unmatchedDetectionCount: null,
+      unmatchedReportCount: null,
+      optimizationScore: null,
+      optimizerMatches: [],
       events
     };
     return run;
@@ -366,6 +521,35 @@
           onProgress: (progress) => workerScope.postMessage({ type: "progress", token: request.token, ...progress })
         });
         workerScope.postMessage({ type: "complete", token: request.token, run: result.run, best: result.optimization.best });
+      } else if (request.operation === "optimize_chunk") {
+        const detectionGrid = gridForMealScope(request.grid, request.options.scope);
+        const onProgress = (progress) => workerScope.postMessage({
+          type: "progress",
+          token: request.token,
+          chunkId: request.chunkId,
+          ...progress
+        });
+        const optimization = "objective" in request.options && request.options.objective === "match_pump_reports" ? optimizeMealParamsAgainstReports(
+          detectionGrid,
+          request.options.scope,
+          { ...request.options, candidates: request.candidates, onProgress }
+        ) : optimizeMealParams(
+          detectionGrid,
+          {
+            ...request.options,
+            candidates: request.candidates,
+            onProgress
+          }
+        );
+        workerScope.postMessage({
+          type: "chunk_complete",
+          token: request.token,
+          chunkId: request.chunkId,
+          rows: optimization.rows
+        });
+      } else if (request.operation === "finalize") {
+        const run = buildMealRunFromOptimizedParams(request.grid, request.options, request.params);
+        workerScope.postMessage({ type: "complete", token: request.token, run, best: request.params });
       } else {
         const run = buildParameterMealRun(request.grid, request.options);
         workerScope.postMessage({ type: "complete", token: request.token, run });

@@ -27,12 +27,18 @@ var HypoglycemiaAnalysis = (() => {
     DAILY_CSV_HEADERS: () => DAILY_CSV_HEADERS,
     DAILY_SUMMARY_VERSION: () => DAILY_SUMMARY_VERSION,
     DEFAULT_PARAMETERS: () => DEFAULT_PARAMETERS,
+    PUMP_MEAL_REPORT_CSV_HEADERS: () => PUMP_MEAL_REPORT_CSV_HEADERS,
+    PUMP_MEAL_REPORT_POLICY_VERSION: () => PUMP_MEAL_REPORT_POLICY_VERSION,
     analyzeHypoglycemia: () => analyzeHypoglycemia,
     eventToCsvRow: () => eventToCsvRow,
     exportDailySummariesCsv: () => exportDailySummariesCsv,
     exportEventsCsv: () => exportEventsCsv,
+    exportPumpMealReportsCsv: () => exportPumpMealReportsCsv,
+    extractPumpMealReports: () => extractPumpMealReports,
     formatTimestamp: () => formatTimestamp,
     getManualPauses: () => getManualPauses,
+    isPumpMealRecord: () => isPumpMealRecord,
+    normalizePumpMealSize: () => normalizePumpMealSize,
     normalizeSeriesCsv: () => normalizeSeriesCsv,
     parseTimestamp: () => parseTimestamp,
     summarizeHypoglycemiaDays: () => summarizeHypoglycemiaDays
@@ -118,11 +124,11 @@ var HypoglycemiaAnalysis = (() => {
   }
   function serializeCsv(table) {
     const encode = (value) => {
-      const normalized = String(value ?? "");
-      if (/[",\r\n]/.test(normalized)) {
-        return `"${normalized.replace(/"/g, '""')}"`;
+      const normalized2 = String(value ?? "");
+      if (/[",\r\n]/.test(normalized2)) {
+        return `"${normalized2.replace(/"/g, '""')}"`;
       }
-      return normalized;
+      return normalized2;
     };
     return [table.headers, ...table.rows].map((row) => row.map(encode).join(",")).join("\r\n") + "\r\n";
   }
@@ -148,8 +154,8 @@ var HypoglycemiaAnalysis = (() => {
     if (parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour < 0 || parts.hour > 23 || parts.minute < 0 || parts.minute > 59 || parts.second < 0 || parts.second > 59) {
       return null;
     }
-    const candidate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-    if (candidate.getUTCFullYear() !== parts.year || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) {
+    const candidate2 = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    if (candidate2.getUTCFullYear() !== parts.year || candidate2.getUTCMonth() !== parts.month - 1 || candidate2.getUTCDate() !== parts.day) {
       return null;
     }
     return parts;
@@ -177,6 +183,42 @@ var HypoglycemiaAnalysis = (() => {
     const iso = new Date(time).toISOString();
     return basis === "utc" ? iso : iso.slice(0, 19);
   }
+  function annotationIdentity(record) {
+    return record.eventType.trim().toLowerCase();
+  }
+  function annotationDetailScore(record) {
+    const metadata = record.metadata;
+    return (metadata.annotation_text_clean?.trim() ? 3 : 0) + (metadata.tooltip_text?.trim() ? 3 : 0) + (metadata.annotation_text_raw?.trim() ? 1 : 0) + (record.eventType.trim() ? 2 : 0) + (metadata.event_time_text?.trim() ? 2 : 0) + (record.reportedTime !== null ? 4 : 0) + (metadata.source_point_index?.trim() ? 1 : 0);
+  }
+  function duplicateAnnotation(left, right) {
+    const identity = annotationIdentity(left);
+    if (!identity || identity !== annotationIdentity(right)) return false;
+    if (left.time === right.time) return true;
+    if (left.reportedTime !== null && right.reportedTime !== null && left.reportedTime === right.reportedTime) return true;
+    const hasPreciseMetadata = left.reportedTime !== null || right.reportedTime !== null || !!left.metadata.event_time_text?.trim() || !!right.metadata.event_time_text?.trim();
+    return hasPreciseMetadata && Math.floor(left.time / BIN_MS) === Math.floor(right.time / BIN_MS);
+  }
+  function markSupersededAnnotations(records) {
+    const selected = [];
+    let duplicateCount = 0;
+    for (const record of records) {
+      if (record.kind !== "annotation" || !annotationIdentity(record)) continue;
+      const duplicateIndex = selected.findIndex((existing2) => duplicateAnnotation(existing2, record));
+      if (duplicateIndex < 0) {
+        selected.push(record);
+        continue;
+      }
+      duplicateCount++;
+      const existing = selected[duplicateIndex];
+      if (annotationDetailScore(record) > annotationDetailScore(existing)) {
+        existing.includedInAnalysis = false;
+        selected[duplicateIndex] = record;
+      } else {
+        record.includedInAnalysis = false;
+      }
+    }
+    return duplicateCount;
+  }
   function normalizeSeriesCsv(files) {
     if (!files.length) throw new Error("Select at least one custom series CSV.");
     const records = [];
@@ -201,6 +243,8 @@ var HypoglycemiaAnalysis = (() => {
           throw new Error("Cannot mix offset-free and offset-aware timestamps. Supply a consistent time basis.");
         }
         timeBasis = parsed.basis;
+        const series = row.series.trim();
+        const kind = series.toLowerCase() === "cgm" ? "cgm" : series.toLowerCase() === "insulin" ? "insulin" : "annotation";
         let reportedTime = null;
         if (row.reported_datetime_local?.trim()) {
           try {
@@ -208,11 +252,10 @@ var HypoglycemiaAnalysis = (() => {
             if (reported.basis !== parsed.basis || reported.time < parsed.time || reported.time >= parsed.time + BIN_MS) throw new Error();
             reportedTime = reported.time;
           } catch {
-            throw new Error(`${file.name}, row ${index + 2}: invalid reported_datetime_local or outside its source bin.`);
+            if (kind !== "annotation") throw new Error(`${file.name}, row ${index + 2}: invalid reported_datetime_local or outside its source bin.`);
+            warnings.add("invalid_annotation_reported_datetime_uses_source_timestamp");
           }
         }
-        const series = row.series.trim();
-        const kind = series.toLowerCase() === "cgm" ? "cgm" : series.toLowerCase() === "insulin" ? "insulin" : "annotation";
         if (/insulin/i.test(series) && kind === "annotation") {
           throw new Error(`${file.name}, row ${index + 2}: unsupported insulin series "${series}"; define its units and policy first.`);
         }
@@ -240,6 +283,8 @@ var HypoglycemiaAnalysis = (() => {
         });
       });
     }
+    const duplicateAnnotationRows = markSupersededAnnotations(records);
+    if (duplicateAnnotationRows) warnings.add("duplicate_annotations_preferred_richer");
     const cgm = records.filter((record) => record.kind === "cgm");
     if (!cgm.length) throw new Error("No CGM rows found.");
     const times = records.filter((record) => record.kind !== "annotation").map((record) => record.time);
@@ -357,7 +402,7 @@ var HypoglycemiaAnalysis = (() => {
   }
   function getManualPauses(dataset) {
     const seen = /* @__PURE__ */ new Set();
-    return dataset.records.filter((record) => record.kind === "annotation" && /^insulin paused$/i.test(record.eventType.trim())).map((record) => ({ record, ...pauseTime(record) })).sort((a, b) => a.time - b.time).filter((pause) => {
+    return dataset.records.filter((record) => record.kind === "annotation" && record.includedInAnalysis && /^insulin paused$/i.test(record.eventType.trim())).map((record) => ({ record, ...pauseTime(record) })).sort((a, b) => a.time - b.time).filter((pause) => {
       if (seen.has(pause.time)) return false;
       seen.add(pause.time);
       return true;
@@ -770,8 +815,219 @@ var HypoglycemiaAnalysis = (() => {
     return serializeCsv({ headers: CSV_HEADERS, rows });
   }
 
+  // src/pump-meals/types.ts
+  var PUMP_MEAL_REPORT_POLICY_VERSION = "pump-meal-reports-v1";
+
+  // src/pump-meals/extract.ts
+  function clean(value) {
+    return (value ?? "").trim();
+  }
+  function normalized(value) {
+    return clean(value).toLowerCase().replace(/[\s_-]+/g, " ");
+  }
+  function isPumpMealRecord(record) {
+    return record.series.toLowerCase().includes("meal announcement") || normalized(record.metadata.annotation_kind) === "meal";
+  }
+  function normalizePumpMealSize(value) {
+    const key = normalized(value);
+    if (key === "less than usual") return "less_than_usual";
+    if (key === "usual") return "usual";
+    if (key === "more than usual") return "more_than_usual";
+    if (key === "small") return "small";
+    if (key === "medium") return "medium";
+    if (key === "large") return "large";
+    return "unknown";
+  }
+  function stableHash(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  function candidate(record) {
+    const metadata = record.metadata;
+    const mealType = clean(metadata.meal_type);
+    const rawSize = clean(metadata.meal_size_descriptor);
+    const size = normalizePumpMealSize(rawSize);
+    const descriptiveLabel = [metadata.tooltip_text, metadata.annotation_text_clean, metadata.annotation_text_raw].map(clean).find(Boolean);
+    const label = descriptiveLabel || [mealType, rawSize].filter(Boolean).join(", ") || "Reported meal";
+    const traceIndex = clean(metadata.source_trace_index);
+    const traceName = clean(metadata.source_trace_name);
+    const pointIndex = clean(metadata.source_point_index);
+    const pointIdentity = pointIndex ? JSON.stringify([traceIndex, traceName, pointIndex]) : "";
+    const effectiveTime = record.reportedTime ?? record.time;
+    const warnings = [];
+    if (record.reportedTime === null) warnings.push(clean(metadata.reported_datetime_local) ? "invalid_reported_timestamp_source_fallback" : "source_timestamp_fallback");
+    if (size === "unknown") warnings.push(rawSize ? "unrecognized_size_descriptor" : "missing_size_descriptor");
+    return {
+      record,
+      effectiveTime,
+      mealType,
+      rawSize,
+      size,
+      label,
+      pointIdentity,
+      contentIdentity: JSON.stringify([record.time, normalized(mealType), normalized(rawSize), normalized(label)]),
+      detailScore: (record.reportedTime === null ? 0 : 8) + (pointIndex ? 4 : 0) + (mealType ? 2 : 0) + (rawSize ? 2 : 0) + (label === "Reported meal" ? 0 : 3),
+      warnings
+    };
+  }
+  function compatibleType(left, right) {
+    return !left.mealType || !right.mealType || normalized(left.mealType) === normalized(right.mealType);
+  }
+  function duplicateAcrossSources(left, right) {
+    if (left.record.sourceFileIndex === right.record.sourceFileIndex) return false;
+    if (left.pointIdentity && right.pointIdentity && left.pointIdentity === right.pointIdentity) return true;
+    if (!compatibleType(left, right)) return false;
+    if (left.record.reportedTime !== null && right.record.reportedTime !== null)
+      return left.record.reportedTime === right.record.reportedTime;
+    if (left.contentIdentity === right.contentIdentity) return true;
+    return Math.floor(left.record.time / BIN_MS) === Math.floor(right.record.time / BIN_MS) && (left.record.reportedTime !== null || right.record.reportedTime !== null) && normalized(left.mealType) !== "" && normalized(left.mealType) === normalized(right.mealType);
+  }
+  function sourceReference(item) {
+    const metadata = item.record.metadata;
+    return {
+      sourceFile: item.record.sourceFile,
+      sourceFileIndex: item.record.sourceFileIndex,
+      row: item.record.row,
+      sourceTimestamp: item.record.sourceTimestamp,
+      sourceTraceIndex: clean(metadata.source_trace_index) || null,
+      sourceTraceName: clean(metadata.source_trace_name) || null,
+      sourcePointIndex: clean(metadata.source_point_index) || null
+    };
+  }
+  function mergeGroup(group, timeBasis) {
+    const ranked = [...group].sort((a, b) => b.detailScore - a.detailScore || a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const selected = ranked[0];
+    const typeValues = [...new Set(group.map((item) => clean(item.mealType)).filter(Boolean))];
+    const sizeValues = [...new Set(group.map((item) => clean(item.rawSize)).filter(Boolean))];
+    const conflictDetails = [];
+    if (typeValues.map((value) => normalized(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_meal_type");
+    if (sizeValues.map((value) => normalizePumpMealSize(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_size_descriptor");
+    const normalizedSize = conflictDetails.includes("conflicting_size_descriptor") ? "unknown" : selected.size;
+    const effectiveTimes = [...new Set(group.map((item) => item.effectiveTime))];
+    if (effectiveTimes.length > 1) conflictDetails.push("merged_source_and_precise_times");
+    const identity = JSON.stringify([
+      selected.effectiveTime,
+      normalized(selected.mealType),
+      normalizedSize,
+      group.map((item) => item.pointIdentity || item.contentIdentity).sort()
+    ]);
+    const sourceReferences = group.map(sourceReference).sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.row - b.row);
+    const warnings = [...new Set(group.flatMap((item) => item.warnings).concat(conflictDetails))].sort();
+    return {
+      reportId: `pump-meal-${stableHash(identity)}`,
+      sourceReferences,
+      sourceTimestamp: selected.record.sourceTimestamp,
+      reportedTimestamp: selected.record.reportedTime === null ? null : formatTimestamp(selected.record.reportedTime, timeBasis),
+      effectiveTimestamp: formatTimestamp(selected.effectiveTime, timeBasis),
+      effectiveTime: selected.effectiveTime,
+      timeBasis,
+      timingQuality: selected.record.reportedTime === null ? "source_timestamp_fallback" : "precise_reported_time",
+      mealType: conflictDetails.includes("conflicting_meal_type") ? "" : selected.mealType,
+      rawSizeDescriptor: conflictDetails.includes("conflicting_size_descriptor") ? sizeValues.join(" | ") : selected.rawSize,
+      normalizedSize,
+      label: selected.label,
+      duplicateCount: group.length - 1,
+      duplicateDetails: group.length > 1 ? ["overlapping_source_representation_merged"] : [],
+      conflictDetails,
+      warnings,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+  function extractPumpMealReports(dataset) {
+    const candidates = dataset.records.filter(isPumpMealRecord).map(candidate).sort((a, b) => a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const groups = [];
+    for (const item of candidates) {
+      const group = groups.find((existing) => existing.some((member) => duplicateAcrossSources(member, item)));
+      if (group) group.push(item);
+      else groups.push([item]);
+    }
+    const reports = groups.map((group) => mergeGroup(group, dataset.timeBasis)).sort((a, b) => a.effectiveTime - b.effectiveTime || a.reportId.localeCompare(b.reportId));
+    const idOccurrences = /* @__PURE__ */ new Map();
+    for (const report of reports) {
+      const occurrence = (idOccurrences.get(report.reportId) ?? 0) + 1;
+      idOccurrences.set(report.reportId, occurrence);
+      if (occurrence > 1) report.reportId = `${report.reportId}-${occurrence}`;
+    }
+    const recognized = candidates.length > 0;
+    const qualityFlags = [...new Set(reports.flatMap((report) => report.warnings))].sort();
+    return {
+      reports,
+      coverageStatus: recognized ? "unknown" : "unavailable",
+      coverageBasis: recognized ? "recognized report-capable source; completeness not declared" : "no recognized report source or coverage declaration",
+      qualityFlags,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+
+  // src/pump-meals/export.ts
+  var PUMP_MEAL_REPORT_CSV_HEADERS = [
+    "report_id",
+    "date",
+    "time_basis",
+    "study_id",
+    "episode_id",
+    "effective_timestamp",
+    "source_timestamp",
+    "reported_timestamp",
+    "timing_quality",
+    "meal_type",
+    "raw_size_descriptor",
+    "normalized_size_category",
+    "descriptive_label",
+    "source_files",
+    "source_rows",
+    "source_trace_indices",
+    "source_trace_names",
+    "source_point_indices",
+    "duplicate_count",
+    "duplicate_details",
+    "conflict_details",
+    "quality_flags",
+    "coverage_status",
+    "coverage_basis",
+    "report_policy_version"
+  ];
+  function safeText(value) {
+    return /^[=+\-@]/.test(value) ? `'${value}` : value;
+  }
+  function exportPumpMealReportsCsv(reportSet, options = {}) {
+    return serializeCsv({ headers: PUMP_MEAL_REPORT_CSV_HEADERS, rows: reportSet.reports.map((report) => [
+      report.reportId,
+      report.effectiveTimestamp.slice(0, 10),
+      report.timeBasis,
+      safeText(options.studyId ?? ""),
+      safeText(options.episodeId ?? ""),
+      report.effectiveTimestamp,
+      report.sourceTimestamp,
+      report.reportedTimestamp ?? "",
+      report.timingQuality,
+      safeText(report.mealType),
+      safeText(report.rawSizeDescriptor),
+      report.normalizedSize,
+      safeText(report.label),
+      safeText(report.sourceReferences.map((source) => source.sourceFile).join("; ")),
+      report.sourceReferences.map((source) => source.row).join("; "),
+      report.sourceReferences.map((source) => source.sourceTraceIndex ?? "").join("; "),
+      report.sourceReferences.map((source) => source.sourceTraceName ?? "").join("; "),
+      report.sourceReferences.map((source) => source.sourcePointIndex ?? "").join("; "),
+      String(report.duplicateCount),
+      report.duplicateDetails.join("; "),
+      report.conflictDetails.join("; "),
+      report.warnings.join("; "),
+      reportSet.coverageStatus,
+      safeText(reportSet.coverageBasis),
+      report.policyVersion
+    ]) });
+  }
+
   // src/hypoglycemia/daily.ts
-  var DAILY_SUMMARY_VERSION = "hypo-daily-v1";
+  var DAILY_SUMMARY_VERSION = "hypo-daily-v2";
   var DAY_MS = 864e5;
   function dayStart(time) {
     const date = new Date(time);
@@ -790,6 +1046,7 @@ var HypoglycemiaAnalysis = (() => {
     const startDay = dayStart(analysisStart);
     const endDay = dayStart(analysisEnd - 1);
     const thresholds = events[0]?.parameters ?? { lowThresholdMgdl: 70, level2ThresholdMgdl: 54 };
+    const pumpMeals = options.pumpMealReports ?? extractPumpMealReports(dataset);
     const rows = [];
     for (let dateStart = startDay; dateStart <= endDay; dateStart += DAY_MS) {
       const dateEnd = dateStart + DAY_MS;
@@ -818,6 +1075,13 @@ var HypoglycemiaAnalysis = (() => {
         const onset = parseTimestamp(event.startTime).time;
         return onset >= dateStart && onset < dateEnd;
       });
+      const dayReports = pumpMeals.reports.filter((report) => report.effectiveTime >= boundedStart && report.effectiveTime < boundedEnd);
+      const available = pumpMeals.coverageStatus !== "unavailable";
+      const sizeCount = (size) => available ? dayReports.filter((report) => report.normalizedSize === size).length : null;
+      const less = sizeCount("less_than_usual");
+      const usual = sizeCount("usual");
+      const more = sizeCount("more_than_usual");
+      const knownRelative = available ? less + usual + more : null;
       const percent = (minutes) => observedCgmMinutes ? rounded(minutes / observedCgmMinutes * 100) : null;
       rows.push({
         date: new Date(dateStart).toISOString().slice(0, 10),
@@ -853,7 +1117,21 @@ var HypoglycemiaAnalysis = (() => {
         insulinCoveragePct: expectedMinutes ? rounded(observedInsulinMinutes / expectedMinutes * 100) : null,
         lowThresholdMgdl: thresholds.lowThresholdMgdl,
         level2ThresholdMgdl: thresholds.level2ThresholdMgdl,
-        rangeUpperMgdl: 180
+        rangeUpperMgdl: 180,
+        pumpMealReportCount: available ? dayReports.length : null,
+        pumpMealLessThanUsualCount: less,
+        pumpMealUsualCount: usual,
+        pumpMealMoreThanUsualCount: more,
+        pumpMealSmallCount: sizeCount("small"),
+        pumpMealMediumCount: sizeCount("medium"),
+        pumpMealLargeCount: sizeCount("large"),
+        pumpMealUnknownSizeCount: sizeCount("unknown"),
+        pumpMealKnownRelativeSizeCount: knownRelative,
+        pumpMealLessThanUsualFraction: knownRelative ? rounded(less / knownRelative) : null,
+        pumpMealReportCoverageStatus: pumpMeals.coverageStatus,
+        pumpMealReportCoverageBasis: pumpMeals.coverageBasis,
+        pumpMealReportQualityFlags: [.../* @__PURE__ */ new Set([...pumpMeals.qualityFlags, ...dayReports.flatMap((report) => report.warnings)])].join("; "),
+        pumpMealReportPolicyVersion: pumpMeals.policyVersion
       });
     }
     return rows;
@@ -892,7 +1170,21 @@ var HypoglycemiaAnalysis = (() => {
     "insulin_coverage_pct",
     "low_threshold_mgdl",
     "level2_threshold_mgdl",
-    "range_upper_mgdl"
+    "range_upper_mgdl",
+    "pump_meal_report_count",
+    "pump_meal_less_than_usual_count",
+    "pump_meal_usual_count",
+    "pump_meal_more_than_usual_count",
+    "pump_meal_small_count",
+    "pump_meal_medium_count",
+    "pump_meal_large_count",
+    "pump_meal_unknown_size_count",
+    "pump_meal_known_relative_size_count",
+    "pump_meal_less_than_usual_fraction",
+    "pump_meal_report_coverage_status",
+    "pump_meal_report_coverage_basis",
+    "pump_meal_report_quality_flags",
+    "pump_meal_report_policy_version"
   ];
   function exportDailySummariesCsv(rows) {
     const keyMap = {
@@ -929,7 +1221,21 @@ var HypoglycemiaAnalysis = (() => {
       low_threshold_mgdl: "lowThresholdMgdl",
       level2_threshold_mgdl: "level2ThresholdMgdl",
       range_upper_mgdl: "rangeUpperMgdl",
-      date: "date"
+      date: "date",
+      pump_meal_report_count: "pumpMealReportCount",
+      pump_meal_less_than_usual_count: "pumpMealLessThanUsualCount",
+      pump_meal_usual_count: "pumpMealUsualCount",
+      pump_meal_more_than_usual_count: "pumpMealMoreThanUsualCount",
+      pump_meal_small_count: "pumpMealSmallCount",
+      pump_meal_medium_count: "pumpMealMediumCount",
+      pump_meal_large_count: "pumpMealLargeCount",
+      pump_meal_unknown_size_count: "pumpMealUnknownSizeCount",
+      pump_meal_known_relative_size_count: "pumpMealKnownRelativeSizeCount",
+      pump_meal_less_than_usual_fraction: "pumpMealLessThanUsualFraction",
+      pump_meal_report_coverage_status: "pumpMealReportCoverageStatus",
+      pump_meal_report_coverage_basis: "pumpMealReportCoverageBasis",
+      pump_meal_report_quality_flags: "pumpMealReportQualityFlags",
+      pump_meal_report_policy_version: "pumpMealReportPolicyVersion"
     };
     return serializeCsv({ headers: DAILY_CSV_HEADERS, rows: rows.map((row) => DAILY_CSV_HEADERS.map((header) => {
       const value = row[keyMap[header]];

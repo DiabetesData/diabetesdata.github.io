@@ -104,11 +104,11 @@ var HypoglycemiaReviewBundle = (() => {
   }
   function serializeCsv(table) {
     const encode = (value) => {
-      const normalized = String(value ?? "");
-      if (/[",\r\n]/.test(normalized)) {
-        return `"${normalized.replace(/"/g, '""')}"`;
+      const normalized2 = String(value ?? "");
+      if (/[",\r\n]/.test(normalized2)) {
+        return `"${normalized2.replace(/"/g, '""')}"`;
       }
-      return normalized;
+      return normalized2;
     };
     return [table.headers, ...table.rows].map((row) => row.map(encode).join(",")).join("\r\n") + "\r\n";
   }
@@ -134,8 +134,8 @@ var HypoglycemiaReviewBundle = (() => {
     if (parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31 || parts.hour < 0 || parts.hour > 23 || parts.minute < 0 || parts.minute > 59 || parts.second < 0 || parts.second > 59) {
       return null;
     }
-    const candidate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-    if (candidate.getUTCFullYear() !== parts.year || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) {
+    const candidate2 = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    if (candidate2.getUTCFullYear() !== parts.year || candidate2.getUTCMonth() !== parts.month - 1 || candidate2.getUTCDate() !== parts.day) {
       return null;
     }
     return parts;
@@ -163,6 +163,42 @@ var HypoglycemiaReviewBundle = (() => {
     const iso = new Date(time).toISOString();
     return basis === "utc" ? iso : iso.slice(0, 19);
   }
+  function annotationIdentity(record) {
+    return record.eventType.trim().toLowerCase();
+  }
+  function annotationDetailScore(record) {
+    const metadata = record.metadata;
+    return (metadata.annotation_text_clean?.trim() ? 3 : 0) + (metadata.tooltip_text?.trim() ? 3 : 0) + (metadata.annotation_text_raw?.trim() ? 1 : 0) + (record.eventType.trim() ? 2 : 0) + (metadata.event_time_text?.trim() ? 2 : 0) + (record.reportedTime !== null ? 4 : 0) + (metadata.source_point_index?.trim() ? 1 : 0);
+  }
+  function duplicateAnnotation(left, right) {
+    const identity = annotationIdentity(left);
+    if (!identity || identity !== annotationIdentity(right)) return false;
+    if (left.time === right.time) return true;
+    if (left.reportedTime !== null && right.reportedTime !== null && left.reportedTime === right.reportedTime) return true;
+    const hasPreciseMetadata = left.reportedTime !== null || right.reportedTime !== null || !!left.metadata.event_time_text?.trim() || !!right.metadata.event_time_text?.trim();
+    return hasPreciseMetadata && Math.floor(left.time / BIN_MS) === Math.floor(right.time / BIN_MS);
+  }
+  function markSupersededAnnotations(records) {
+    const selected = [];
+    let duplicateCount = 0;
+    for (const record of records) {
+      if (record.kind !== "annotation" || !annotationIdentity(record)) continue;
+      const duplicateIndex = selected.findIndex((existing2) => duplicateAnnotation(existing2, record));
+      if (duplicateIndex < 0) {
+        selected.push(record);
+        continue;
+      }
+      duplicateCount++;
+      const existing = selected[duplicateIndex];
+      if (annotationDetailScore(record) > annotationDetailScore(existing)) {
+        existing.includedInAnalysis = false;
+        selected[duplicateIndex] = record;
+      } else {
+        record.includedInAnalysis = false;
+      }
+    }
+    return duplicateCount;
+  }
   function normalizeSeriesCsv(files) {
     if (!files.length) throw new Error("Select at least one custom series CSV.");
     const records = [];
@@ -187,6 +223,8 @@ var HypoglycemiaReviewBundle = (() => {
           throw new Error("Cannot mix offset-free and offset-aware timestamps. Supply a consistent time basis.");
         }
         timeBasis = parsed.basis;
+        const series = row.series.trim();
+        const kind = series.toLowerCase() === "cgm" ? "cgm" : series.toLowerCase() === "insulin" ? "insulin" : "annotation";
         let reportedTime = null;
         if (row.reported_datetime_local?.trim()) {
           try {
@@ -194,11 +232,10 @@ var HypoglycemiaReviewBundle = (() => {
             if (reported.basis !== parsed.basis || reported.time < parsed.time || reported.time >= parsed.time + BIN_MS) throw new Error();
             reportedTime = reported.time;
           } catch {
-            throw new Error(`${file.name}, row ${index + 2}: invalid reported_datetime_local or outside its source bin.`);
+            if (kind !== "annotation") throw new Error(`${file.name}, row ${index + 2}: invalid reported_datetime_local or outside its source bin.`);
+            warnings.add("invalid_annotation_reported_datetime_uses_source_timestamp");
           }
         }
-        const series = row.series.trim();
-        const kind = series.toLowerCase() === "cgm" ? "cgm" : series.toLowerCase() === "insulin" ? "insulin" : "annotation";
         if (/insulin/i.test(series) && kind === "annotation") {
           throw new Error(`${file.name}, row ${index + 2}: unsupported insulin series "${series}"; define its units and policy first.`);
         }
@@ -226,6 +263,8 @@ var HypoglycemiaReviewBundle = (() => {
         });
       });
     }
+    const duplicateAnnotationRows = markSupersededAnnotations(records);
+    if (duplicateAnnotationRows) warnings.add("duplicate_annotations_preferred_richer");
     const cgm = records.filter((record) => record.kind === "cgm");
     if (!cgm.length) throw new Error("No CGM rows found.");
     const times = records.filter((record) => record.kind !== "annotation").map((record) => record.time);
@@ -343,7 +382,7 @@ var HypoglycemiaReviewBundle = (() => {
   }
   function getManualPauses(dataset) {
     const seen = /* @__PURE__ */ new Set();
-    return dataset.records.filter((record) => record.kind === "annotation" && /^insulin paused$/i.test(record.eventType.trim())).map((record) => ({ record, ...pauseTime(record) })).sort((a, b) => a.time - b.time).filter((pause) => {
+    return dataset.records.filter((record) => record.kind === "annotation" && record.includedInAnalysis && /^insulin paused$/i.test(record.eventType.trim())).map((record) => ({ record, ...pauseTime(record) })).sort((a, b) => a.time - b.time).filter((pause) => {
       if (seen.has(pause.time)) return false;
       seen.add(pause.time);
       return true;
@@ -756,8 +795,219 @@ var HypoglycemiaReviewBundle = (() => {
     return serializeCsv({ headers: CSV_HEADERS, rows });
   }
 
+  // src/pump-meals/types.ts
+  var PUMP_MEAL_REPORT_POLICY_VERSION = "pump-meal-reports-v1";
+
+  // src/pump-meals/extract.ts
+  function clean(value) {
+    return (value ?? "").trim();
+  }
+  function normalized(value) {
+    return clean(value).toLowerCase().replace(/[\s_-]+/g, " ");
+  }
+  function isPumpMealRecord(record) {
+    return record.series.toLowerCase().includes("meal announcement") || normalized(record.metadata.annotation_kind) === "meal";
+  }
+  function normalizePumpMealSize(value) {
+    const key = normalized(value);
+    if (key === "less than usual") return "less_than_usual";
+    if (key === "usual") return "usual";
+    if (key === "more than usual") return "more_than_usual";
+    if (key === "small") return "small";
+    if (key === "medium") return "medium";
+    if (key === "large") return "large";
+    return "unknown";
+  }
+  function stableHash(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  function candidate(record) {
+    const metadata = record.metadata;
+    const mealType = clean(metadata.meal_type);
+    const rawSize = clean(metadata.meal_size_descriptor);
+    const size = normalizePumpMealSize(rawSize);
+    const descriptiveLabel = [metadata.tooltip_text, metadata.annotation_text_clean, metadata.annotation_text_raw].map(clean).find(Boolean);
+    const label = descriptiveLabel || [mealType, rawSize].filter(Boolean).join(", ") || "Reported meal";
+    const traceIndex = clean(metadata.source_trace_index);
+    const traceName = clean(metadata.source_trace_name);
+    const pointIndex = clean(metadata.source_point_index);
+    const pointIdentity = pointIndex ? JSON.stringify([traceIndex, traceName, pointIndex]) : "";
+    const effectiveTime = record.reportedTime ?? record.time;
+    const warnings = [];
+    if (record.reportedTime === null) warnings.push(clean(metadata.reported_datetime_local) ? "invalid_reported_timestamp_source_fallback" : "source_timestamp_fallback");
+    if (size === "unknown") warnings.push(rawSize ? "unrecognized_size_descriptor" : "missing_size_descriptor");
+    return {
+      record,
+      effectiveTime,
+      mealType,
+      rawSize,
+      size,
+      label,
+      pointIdentity,
+      contentIdentity: JSON.stringify([record.time, normalized(mealType), normalized(rawSize), normalized(label)]),
+      detailScore: (record.reportedTime === null ? 0 : 8) + (pointIndex ? 4 : 0) + (mealType ? 2 : 0) + (rawSize ? 2 : 0) + (label === "Reported meal" ? 0 : 3),
+      warnings
+    };
+  }
+  function compatibleType(left, right) {
+    return !left.mealType || !right.mealType || normalized(left.mealType) === normalized(right.mealType);
+  }
+  function duplicateAcrossSources(left, right) {
+    if (left.record.sourceFileIndex === right.record.sourceFileIndex) return false;
+    if (left.pointIdentity && right.pointIdentity && left.pointIdentity === right.pointIdentity) return true;
+    if (!compatibleType(left, right)) return false;
+    if (left.record.reportedTime !== null && right.record.reportedTime !== null)
+      return left.record.reportedTime === right.record.reportedTime;
+    if (left.contentIdentity === right.contentIdentity) return true;
+    return Math.floor(left.record.time / BIN_MS) === Math.floor(right.record.time / BIN_MS) && (left.record.reportedTime !== null || right.record.reportedTime !== null) && normalized(left.mealType) !== "" && normalized(left.mealType) === normalized(right.mealType);
+  }
+  function sourceReference(item) {
+    const metadata = item.record.metadata;
+    return {
+      sourceFile: item.record.sourceFile,
+      sourceFileIndex: item.record.sourceFileIndex,
+      row: item.record.row,
+      sourceTimestamp: item.record.sourceTimestamp,
+      sourceTraceIndex: clean(metadata.source_trace_index) || null,
+      sourceTraceName: clean(metadata.source_trace_name) || null,
+      sourcePointIndex: clean(metadata.source_point_index) || null
+    };
+  }
+  function mergeGroup(group, timeBasis) {
+    const ranked = [...group].sort((a, b) => b.detailScore - a.detailScore || a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const selected = ranked[0];
+    const typeValues = [...new Set(group.map((item) => clean(item.mealType)).filter(Boolean))];
+    const sizeValues = [...new Set(group.map((item) => clean(item.rawSize)).filter(Boolean))];
+    const conflictDetails = [];
+    if (typeValues.map((value) => normalized(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_meal_type");
+    if (sizeValues.map((value) => normalizePumpMealSize(value)).filter((value, index, all) => all.indexOf(value) === index).length > 1)
+      conflictDetails.push("conflicting_size_descriptor");
+    const normalizedSize = conflictDetails.includes("conflicting_size_descriptor") ? "unknown" : selected.size;
+    const effectiveTimes = [...new Set(group.map((item) => item.effectiveTime))];
+    if (effectiveTimes.length > 1) conflictDetails.push("merged_source_and_precise_times");
+    const identity = JSON.stringify([
+      selected.effectiveTime,
+      normalized(selected.mealType),
+      normalizedSize,
+      group.map((item) => item.pointIdentity || item.contentIdentity).sort()
+    ]);
+    const sourceReferences = group.map(sourceReference).sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.row - b.row);
+    const warnings = [...new Set(group.flatMap((item) => item.warnings).concat(conflictDetails))].sort();
+    return {
+      reportId: `pump-meal-${stableHash(identity)}`,
+      sourceReferences,
+      sourceTimestamp: selected.record.sourceTimestamp,
+      reportedTimestamp: selected.record.reportedTime === null ? null : formatTimestamp(selected.record.reportedTime, timeBasis),
+      effectiveTimestamp: formatTimestamp(selected.effectiveTime, timeBasis),
+      effectiveTime: selected.effectiveTime,
+      timeBasis,
+      timingQuality: selected.record.reportedTime === null ? "source_timestamp_fallback" : "precise_reported_time",
+      mealType: conflictDetails.includes("conflicting_meal_type") ? "" : selected.mealType,
+      rawSizeDescriptor: conflictDetails.includes("conflicting_size_descriptor") ? sizeValues.join(" | ") : selected.rawSize,
+      normalizedSize,
+      label: selected.label,
+      duplicateCount: group.length - 1,
+      duplicateDetails: group.length > 1 ? ["overlapping_source_representation_merged"] : [],
+      conflictDetails,
+      warnings,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+  function extractPumpMealReports(dataset) {
+    const candidates = dataset.records.filter(isPumpMealRecord).map(candidate).sort((a, b) => a.effectiveTime - b.effectiveTime || a.record.sourceFile.localeCompare(b.record.sourceFile) || a.record.row - b.record.row);
+    const groups = [];
+    for (const item of candidates) {
+      const group = groups.find((existing) => existing.some((member) => duplicateAcrossSources(member, item)));
+      if (group) group.push(item);
+      else groups.push([item]);
+    }
+    const reports = groups.map((group) => mergeGroup(group, dataset.timeBasis)).sort((a, b) => a.effectiveTime - b.effectiveTime || a.reportId.localeCompare(b.reportId));
+    const idOccurrences = /* @__PURE__ */ new Map();
+    for (const report of reports) {
+      const occurrence = (idOccurrences.get(report.reportId) ?? 0) + 1;
+      idOccurrences.set(report.reportId, occurrence);
+      if (occurrence > 1) report.reportId = `${report.reportId}-${occurrence}`;
+    }
+    const recognized = candidates.length > 0;
+    const qualityFlags = [...new Set(reports.flatMap((report) => report.warnings))].sort();
+    return {
+      reports,
+      coverageStatus: recognized ? "unknown" : "unavailable",
+      coverageBasis: recognized ? "recognized report-capable source; completeness not declared" : "no recognized report source or coverage declaration",
+      qualityFlags,
+      policyVersion: PUMP_MEAL_REPORT_POLICY_VERSION
+    };
+  }
+
+  // src/pump-meals/export.ts
+  var PUMP_MEAL_REPORT_CSV_HEADERS = [
+    "report_id",
+    "date",
+    "time_basis",
+    "study_id",
+    "episode_id",
+    "effective_timestamp",
+    "source_timestamp",
+    "reported_timestamp",
+    "timing_quality",
+    "meal_type",
+    "raw_size_descriptor",
+    "normalized_size_category",
+    "descriptive_label",
+    "source_files",
+    "source_rows",
+    "source_trace_indices",
+    "source_trace_names",
+    "source_point_indices",
+    "duplicate_count",
+    "duplicate_details",
+    "conflict_details",
+    "quality_flags",
+    "coverage_status",
+    "coverage_basis",
+    "report_policy_version"
+  ];
+  function safeText(value) {
+    return /^[=+\-@]/.test(value) ? `'${value}` : value;
+  }
+  function exportPumpMealReportsCsv(reportSet, options = {}) {
+    return serializeCsv({ headers: PUMP_MEAL_REPORT_CSV_HEADERS, rows: reportSet.reports.map((report) => [
+      report.reportId,
+      report.effectiveTimestamp.slice(0, 10),
+      report.timeBasis,
+      safeText(options.studyId ?? ""),
+      safeText(options.episodeId ?? ""),
+      report.effectiveTimestamp,
+      report.sourceTimestamp,
+      report.reportedTimestamp ?? "",
+      report.timingQuality,
+      safeText(report.mealType),
+      safeText(report.rawSizeDescriptor),
+      report.normalizedSize,
+      safeText(report.label),
+      safeText(report.sourceReferences.map((source) => source.sourceFile).join("; ")),
+      report.sourceReferences.map((source) => source.row).join("; "),
+      report.sourceReferences.map((source) => source.sourceTraceIndex ?? "").join("; "),
+      report.sourceReferences.map((source) => source.sourceTraceName ?? "").join("; "),
+      report.sourceReferences.map((source) => source.sourcePointIndex ?? "").join("; "),
+      String(report.duplicateCount),
+      report.duplicateDetails.join("; "),
+      report.conflictDetails.join("; "),
+      report.warnings.join("; "),
+      reportSet.coverageStatus,
+      safeText(reportSet.coverageBasis),
+      report.policyVersion
+    ]) });
+  }
+
   // src/hypoglycemia/daily.ts
-  var DAILY_SUMMARY_VERSION = "hypo-daily-v1";
+  var DAILY_SUMMARY_VERSION = "hypo-daily-v2";
   var DAY_MS = 864e5;
   function dayStart(time) {
     const date = new Date(time);
@@ -776,6 +1026,7 @@ var HypoglycemiaReviewBundle = (() => {
     const startDay = dayStart(analysisStart);
     const endDay = dayStart(analysisEnd - 1);
     const thresholds = events[0]?.parameters ?? { lowThresholdMgdl: 70, level2ThresholdMgdl: 54 };
+    const pumpMeals = options.pumpMealReports ?? extractPumpMealReports(dataset);
     const rows = [];
     for (let dateStart = startDay; dateStart <= endDay; dateStart += DAY_MS) {
       const dateEnd = dateStart + DAY_MS;
@@ -804,6 +1055,13 @@ var HypoglycemiaReviewBundle = (() => {
         const onset = parseTimestamp(event.startTime).time;
         return onset >= dateStart && onset < dateEnd;
       });
+      const dayReports = pumpMeals.reports.filter((report) => report.effectiveTime >= boundedStart && report.effectiveTime < boundedEnd);
+      const available = pumpMeals.coverageStatus !== "unavailable";
+      const sizeCount = (size) => available ? dayReports.filter((report) => report.normalizedSize === size).length : null;
+      const less = sizeCount("less_than_usual");
+      const usual = sizeCount("usual");
+      const more = sizeCount("more_than_usual");
+      const knownRelative = available ? less + usual + more : null;
       const percent = (minutes) => observedCgmMinutes ? rounded(minutes / observedCgmMinutes * 100) : null;
       rows.push({
         date: new Date(dateStart).toISOString().slice(0, 10),
@@ -839,7 +1097,21 @@ var HypoglycemiaReviewBundle = (() => {
         insulinCoveragePct: expectedMinutes ? rounded(observedInsulinMinutes / expectedMinutes * 100) : null,
         lowThresholdMgdl: thresholds.lowThresholdMgdl,
         level2ThresholdMgdl: thresholds.level2ThresholdMgdl,
-        rangeUpperMgdl: 180
+        rangeUpperMgdl: 180,
+        pumpMealReportCount: available ? dayReports.length : null,
+        pumpMealLessThanUsualCount: less,
+        pumpMealUsualCount: usual,
+        pumpMealMoreThanUsualCount: more,
+        pumpMealSmallCount: sizeCount("small"),
+        pumpMealMediumCount: sizeCount("medium"),
+        pumpMealLargeCount: sizeCount("large"),
+        pumpMealUnknownSizeCount: sizeCount("unknown"),
+        pumpMealKnownRelativeSizeCount: knownRelative,
+        pumpMealLessThanUsualFraction: knownRelative ? rounded(less / knownRelative) : null,
+        pumpMealReportCoverageStatus: pumpMeals.coverageStatus,
+        pumpMealReportCoverageBasis: pumpMeals.coverageBasis,
+        pumpMealReportQualityFlags: [.../* @__PURE__ */ new Set([...pumpMeals.qualityFlags, ...dayReports.flatMap((report) => report.warnings)])].join("; "),
+        pumpMealReportPolicyVersion: pumpMeals.policyVersion
       });
     }
     return rows;
@@ -878,7 +1150,21 @@ var HypoglycemiaReviewBundle = (() => {
     "insulin_coverage_pct",
     "low_threshold_mgdl",
     "level2_threshold_mgdl",
-    "range_upper_mgdl"
+    "range_upper_mgdl",
+    "pump_meal_report_count",
+    "pump_meal_less_than_usual_count",
+    "pump_meal_usual_count",
+    "pump_meal_more_than_usual_count",
+    "pump_meal_small_count",
+    "pump_meal_medium_count",
+    "pump_meal_large_count",
+    "pump_meal_unknown_size_count",
+    "pump_meal_known_relative_size_count",
+    "pump_meal_less_than_usual_fraction",
+    "pump_meal_report_coverage_status",
+    "pump_meal_report_coverage_basis",
+    "pump_meal_report_quality_flags",
+    "pump_meal_report_policy_version"
   ];
   function exportDailySummariesCsv(rows) {
     const keyMap = {
@@ -915,7 +1201,21 @@ var HypoglycemiaReviewBundle = (() => {
       low_threshold_mgdl: "lowThresholdMgdl",
       level2_threshold_mgdl: "level2ThresholdMgdl",
       range_upper_mgdl: "rangeUpperMgdl",
-      date: "date"
+      date: "date",
+      pump_meal_report_count: "pumpMealReportCount",
+      pump_meal_less_than_usual_count: "pumpMealLessThanUsualCount",
+      pump_meal_usual_count: "pumpMealUsualCount",
+      pump_meal_more_than_usual_count: "pumpMealMoreThanUsualCount",
+      pump_meal_small_count: "pumpMealSmallCount",
+      pump_meal_medium_count: "pumpMealMediumCount",
+      pump_meal_large_count: "pumpMealLargeCount",
+      pump_meal_unknown_size_count: "pumpMealUnknownSizeCount",
+      pump_meal_known_relative_size_count: "pumpMealKnownRelativeSizeCount",
+      pump_meal_less_than_usual_fraction: "pumpMealLessThanUsualFraction",
+      pump_meal_report_coverage_status: "pumpMealReportCoverageStatus",
+      pump_meal_report_coverage_basis: "pumpMealReportCoverageBasis",
+      pump_meal_report_quality_flags: "pumpMealReportQualityFlags",
+      pump_meal_report_policy_version: "pumpMealReportPolicyVersion"
     };
     return serializeCsv({ headers: DAILY_CSV_HEADERS, rows: rows.map((row) => DAILY_CSV_HEADERS.map((header) => {
       const value = row[keyMap[header]];
@@ -925,7 +1225,7 @@ var HypoglycemiaReviewBundle = (() => {
 
   // src/hypoglycemia-ui/source-state.ts
   function createSourceState() {
-    return { primary: [], supplemental: null, revision: 0, latestGeneration: 0 };
+    return { primary: [], supplemental: [], revision: 0, latestGeneration: 0 };
   }
   function beginSourceImport(state2) {
     const token = state2.latestGeneration + 1;
@@ -946,8 +1246,14 @@ var HypoglycemiaReviewBundle = (() => {
       if (keep) originalRows.push(index + 2);
       return keep;
     });
-    if (!rows.some((row) => row[seriesIndex]?.trim().toLowerCase() === "insulin")) {
-      throw new Error(`${source.name}: no Insulin rows were found.`);
+    const annotationKindIndex = normalizedHeaders.indexOf("annotation_kind");
+    const supported = rows.some((row) => {
+      const series = row[seriesIndex]?.trim().toLowerCase() ?? "";
+      const annotationKind = annotationKindIndex >= 0 ? row[annotationKindIndex]?.trim().toLowerCase() ?? "" : "";
+      return series === "insulin" || series.includes("meal announcement") || series === "event" || annotationKind === "meal" || annotationKind === "event";
+    });
+    if (!supported) {
+      throw new Error(`${source.name}: no insulin, pump-reported meal, or event rows were found.`);
     }
     return {
       source,
@@ -966,12 +1272,17 @@ var HypoglycemiaReviewBundle = (() => {
     };
     if (update.kind === "supplemental") {
       if (update.format !== "series") throw new Error("Supplemental analysis sources must use Series CSV.");
-      return { ...state2, supplemental: prepareSupplementalSource(source), revision: state2.revision + 1 };
+      const supplemental = prepareSupplementalSource(source);
+      return {
+        ...state2,
+        supplemental: update.merge ? [...state2.supplemental, supplemental] : [supplemental],
+        revision: state2.revision + 1
+      };
     }
     return {
       ...state2,
       primary: update.merge ? [...state2.primary, source] : [source],
-      supplemental: null,
+      supplemental: [],
       revision: state2.revision + 1
     };
   }
@@ -981,7 +1292,7 @@ var HypoglycemiaReviewBundle = (() => {
   function getAnalysisFiles(state2) {
     return [
       ...state2.primary.filter((source) => source.format === "series").map(({ name, text }) => ({ name, text })),
-      ...state2.supplemental ? [state2.supplemental.analysisFile] : []
+      ...state2.supplemental.map((source) => source.analysisFile)
     ];
   }
 
@@ -1261,11 +1572,63 @@ var HypoglycemiaReviewBundle = (() => {
       const Chart = window.Chart;
       const context = canvas.getContext("2d");
       if (!Chart || !context) return false;
-      if (model.mode === "daily_counts") {
-        const counts = model.dailyRows.map((row) => ({ x: row.xValue, y: row.eventCount, row }));
+      if (model.mode !== "over_time") {
+        const combined = model.mode === "combined_daily_counts";
+        const points = (rows, average2 = false) => rows.map((row) => ({
+          x: row.xValue,
+          y: average2 ? row.trailingAverage : row.eventCount,
+          row
+        }));
+        const counts = model.dailyRows.filter((row) => row.eventCount !== null).map((row) => ({ x: row.xValue, y: row.eventCount, row }));
         const average = model.dailyRows.filter((row) => row.trailingAverage !== null).map((row) => ({ x: row.xValue, y: row.trailingAverage, row }));
-        this.chart = new Chart(context, { type: "bar", data: { datasets: [
-          { type: "bar", label: "Detected events per day", data: counts, backgroundColor: "rgba(36, 87, 167, .55)", borderColor: "#2457a7", borderWidth: 1 },
+        const datasets = combined ? [
+          {
+            type: "bar",
+            label: "Pump-reported meals/day",
+            data: points(model.pumpMealDailyRows ?? []),
+            backgroundColor: "rgba(36, 87, 167, .3)",
+            borderColor: "#2457a7",
+            borderWidth: 1,
+            order: 3
+          },
+          {
+            type: "line",
+            label: "Hypoglycemia events/day",
+            data: points(model.dailyRows),
+            borderColor: "#d55e00",
+            backgroundColor: "#d55e00",
+            borderWidth: 2,
+            pointRadius: 3,
+            pointStyle: "triangle",
+            tension: 0,
+            order: 2
+          },
+          {
+            type: "line",
+            label: `${model.movingAverageDays}-day average: pump meals`,
+            data: points(model.pumpMealDailyRows ?? [], true),
+            borderColor: "#2457a7",
+            borderWidth: 3,
+            borderDash: [8, 4],
+            pointRadius: 0,
+            tension: 0,
+            spanGaps: false,
+            order: 1
+          },
+          {
+            type: "line",
+            label: `${model.movingAverageDays}-day average: hypoglycemia`,
+            data: points(model.dailyRows, true),
+            borderColor: "#d55e00",
+            borderWidth: 3,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            tension: 0,
+            spanGaps: false,
+            order: 0
+          }
+        ] : [
+          { type: "bar", label: model.dailyMetricLabel ?? "Daily count", data: counts, backgroundColor: "rgba(36, 87, 167, .55)", borderColor: "#2457a7", borderWidth: 1 },
           {
             type: "line",
             label: `${model.movingAverageDays}-day trailing average`,
@@ -1276,11 +1639,13 @@ var HypoglycemiaReviewBundle = (() => {
             pointRadius: 2,
             tension: 0
           }
-        ] }, options: {
+        ];
+        this.chart = new Chart(context, { type: "bar", data: { datasets }, options: {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
           parsing: false,
+          interaction: combined ? { mode: "index", intersect: false } : void 0,
           plugins: { legend: { display: true }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw.row.date} \xB7 ${ctx.dataset.label}: ${Number(ctx.raw.y.toFixed(3))}` } } },
           scales: {
             x: {
@@ -1288,7 +1653,7 @@ var HypoglycemiaReviewBundle = (() => {
               title: { display: true, text: model.timeBasis === "calendar" ? "Source-calendar day" : "Elapsed days from origin" },
               ticks: model.timeBasis === "calendar" ? { callback: (value) => new Date(value).toISOString().slice(0, 10) } : {}
             },
-            y: { beginAtZero: true, title: { display: true, text: "Detected event onsets per day" } }
+            y: { beginAtZero: true, title: { display: true, text: combined ? "Count per day" : model.dailyMetricLabel ?? "Daily count" } }
           }
         } });
         return true;
@@ -1389,7 +1754,10 @@ var HypoglycemiaReviewBundle = (() => {
       unavailable,
       rows,
       dailyRows: [],
-      movingAverageDays: null
+      movingAverageDays: null,
+      dailyMetricKey: null,
+      dailyMetricLabel: null,
+      dailyMetricUnits: null
     };
   }
   var DAY_MS2 = 864e5;
@@ -1424,7 +1792,9 @@ var HypoglycemiaReviewBundle = (() => {
         date: new Date(day).toISOString().slice(0, 10),
         xValue: options.timeBasis === "calendar" ? day : (day - origin) / DAY_MS2,
         eventCount,
-        trailingAverage
+        trailingAverage,
+        availabilityStatus: "available",
+        qualityFlags: []
       });
     }
     return {
@@ -1437,7 +1807,51 @@ var HypoglycemiaReviewBundle = (() => {
       unavailable: 0,
       rows: [],
       dailyRows,
-      movingAverageDays
+      movingAverageDays,
+      dailyMetricKey: "hypoglycemia_event_count",
+      dailyMetricLabel: "Detected events per day",
+      dailyMetricUnits: "events"
+    };
+  }
+  function buildPumpMealDailyCountTrendModel(options) {
+    const start = parseTimestamp(options.start).time;
+    const end = parseTimestamp(options.end).time;
+    const origin = parseTimestamp(options.origin).time;
+    const movingAverageDays = options.movingAverageDays ?? 7;
+    if (!Number.isInteger(movingAverageDays) || movingAverageDays < 1) throw new Error("Moving-average days must be a positive integer.");
+    const firstDay = calendarDayStart(start);
+    const lastDay = calendarDayStart(Math.max(start, end - 1));
+    const counts = [];
+    const dailyRows = [];
+    for (let day = firstDay; day <= lastDay; day += DAY_MS2) {
+      const available = options.reportSet.coverageStatus !== "unavailable";
+      const count = available ? options.reportSet.reports.filter((report) => report.effectiveTime >= Math.max(day, start) && report.effectiveTime < Math.min(day + DAY_MS2, end)).length : null;
+      counts.push(count);
+      const window2 = counts.slice(-movingAverageDays);
+      const trailingAverage = window2.length === movingAverageDays && window2.every((value) => value !== null) ? window2.reduce((sum, value) => sum + value, 0) / movingAverageDays : null;
+      dailyRows.push({
+        date: new Date(day).toISOString().slice(0, 10),
+        xValue: options.timeBasis === "calendar" ? day : (day - origin) / DAY_MS2,
+        eventCount: count,
+        trailingAverage,
+        availabilityStatus: options.reportSet.coverageStatus,
+        qualityFlags: options.reportSet.qualityFlags
+      });
+    }
+    return {
+      mode: "pump_meal_daily_counts",
+      timeBasis: options.timeBasis,
+      origin: options.origin,
+      originKind: options.originKind,
+      scopeCount: options.reportSet.reports.filter((report) => report.effectiveTime >= start && report.effectiveTime < end).length,
+      qualityExcluded: 0,
+      unavailable: dailyRows.filter((row) => row.eventCount === null).length,
+      rows: [],
+      dailyRows,
+      movingAverageDays,
+      dailyMetricKey: "pump_meal_report_count",
+      dailyMetricLabel: "Pump-reported meals per day",
+      dailyMetricUnits: "reports"
     };
   }
   var TREND_CSV_HEADERS = [
@@ -1458,26 +1872,68 @@ var HypoglycemiaReviewBundle = (() => {
     "quality_flags"
   ];
   function exportTrendCsv(model) {
-    if (model.mode === "daily_counts") {
+    if (model.mode === "combined_daily_counts") {
+      const meals = new Map(model.pumpMealDailyRows?.map((row) => [row.date, row]));
+      const value = (n) => n == null ? "" : String(n);
+      return serializeCsv({
+        headers: [
+          "date",
+          "hypoglycemia_event_count",
+          "pump_meal_report_count",
+          "hypoglycemia_trailing_average",
+          "pump_meal_trailing_average",
+          "moving_average_days",
+          "time_basis",
+          "x_value",
+          "origin_kind",
+          "origin",
+          "pump_meal_availability_status",
+          "pump_meal_quality_flags"
+        ],
+        rows: model.dailyRows.map((row) => {
+          const meal = meals.get(row.date);
+          return [
+            row.date,
+            value(row.eventCount),
+            value(meal?.eventCount),
+            value(row.trailingAverage),
+            value(meal?.trailingAverage),
+            String(model.movingAverageDays),
+            model.timeBasis,
+            String(row.xValue),
+            model.originKind,
+            model.origin,
+            meal?.availabilityStatus ?? "unavailable",
+            meal?.qualityFlags.join("; ") ?? ""
+          ];
+        })
+      });
+    }
+    if (model.mode === "daily_counts" || model.mode === "pump_meal_daily_counts") {
+      const countHeader = model.mode === "daily_counts" ? "event_count" : model.dailyMetricKey ?? "value";
       const headers = [
         "date",
-        "event_count",
+        countHeader,
         "trailing_average",
         "moving_average_days",
         "time_basis",
         "x_value",
         "origin_kind",
-        "origin"
+        "origin",
+        "availability_status",
+        "quality_flags"
       ];
       return serializeCsv({ headers, rows: model.dailyRows.map((row) => [
         row.date,
-        String(row.eventCount),
+        row.eventCount === null ? "" : String(row.eventCount),
         row.trailingAverage === null ? "" : String(row.trailingAverage),
         String(model.movingAverageDays),
         model.timeBasis,
         String(row.xValue),
         model.originKind,
-        model.origin
+        model.origin,
+        row.availabilityStatus,
+        row.qualityFlags.join("; ")
       ]) });
     }
     return serializeCsv({ headers: TREND_CSV_HEADERS, rows: model.rows.map((row) => [
@@ -1644,7 +2100,7 @@ var HypoglycemiaReviewBundle = (() => {
     const explicitZeros = insulin.filter((point) => point.y === 0);
     const positiveInsulin = insulin.filter((point) => point.y !== null && point.y > 0);
     const pauseTime2 = new Map(event.manualPauses.map((pause) => [`${pause.sourceFile}\0${pause.sourceTimestamp}`, parseTimestamp(pause.time).time]));
-    const annotations = dataset.records.filter((record) => record.kind === "annotation").map((record) => {
+    const annotations = dataset.records.filter((record) => record.kind === "annotation" && record.includedInAnalysis).map((record) => {
       const pause = /^insulin paused$/i.test(record.eventType.trim());
       const time = pauseTime2.get(`${record.sourceFile}\0${record.sourceTimestamp}`) ?? record.time;
       if (!inWindow(time)) return null;
@@ -2224,6 +2680,18 @@ var HypoglycemiaReviewBundle = (() => {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
+  function downloadPumpMealReports() {
+    if (state.status !== "success" || !state.dataset) return;
+    const url = URL.createObjectURL(new Blob(
+      [exportPumpMealReportsCsv(extractPumpMealReports(state.dataset))],
+      { type: "text/csv;charset=utf-8" }
+    ));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "pump-meal-reports.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
   function trendElements() {
     const get = (id) => document.getElementById(id);
     return {
@@ -2242,10 +2710,20 @@ var HypoglycemiaReviewBundle = (() => {
   }
   function currentTrendModel(events = displayedEvents()) {
     if (!state.dataset || !state.trendOrigin) return null;
-    if (state.trendMode === "daily_counts") {
+    if (state.trendMode !== "over_time") {
       const cgmBins = state.dataset.bins.filter((bin) => bin.cgmRecords.length > 0);
       if (!cgmBins.length) return null;
-      return buildDailyCountTrendModel({
+      const meals = buildPumpMealDailyCountTrendModel({
+        reportSet: extractPumpMealReports(state.dataset),
+        start: formatTimestamp(cgmBins[0].time, state.dataset.timeBasis),
+        end: formatTimestamp(cgmBins[cgmBins.length - 1].time + 5 * 6e4, state.dataset.timeBasis),
+        timeBasis: state.trendTimeBasis,
+        origin: state.trendOrigin,
+        originKind: state.trendOriginKind,
+        movingAverageDays: 7
+      });
+      if (state.trendMode === "pump_meal_daily_counts") return meals;
+      const counts = buildDailyCountTrendModel({
         events,
         accessor: HYPO_TREND_ACCESSOR,
         start: formatTimestamp(cgmBins[0].time, state.dataset.timeBasis),
@@ -2256,6 +2734,7 @@ var HypoglycemiaReviewBundle = (() => {
         qualityFilter: state.trendQuality,
         movingAverageDays: 7
       });
+      return state.trendMode === "combined_daily_counts" ? { ...counts, mode: "combined_daily_counts", pumpMealDailyRows: meals.dailyRows } : counts;
     }
     return buildEventTrendModel({
       events,
@@ -2285,14 +2764,20 @@ var HypoglycemiaReviewBundle = (() => {
     el.timeBasis.value = state.trendTimeBasis;
     el.quality.value = state.trendQuality;
     el.metric.disabled = state.trendMode !== "over_time";
+    el.quality.disabled = state.trendMode === "pump_meal_daily_counts";
     el.origin.value = model.origin.replace(/Z$/, "").slice(0, 16);
-    el.scope.textContent = `${state.scope === "all" ? "All events" : state.scope === "eligible" ? "Automated-pump eligible subset" : "Manual-pause affected events"}; origin is ${state.trendOriginKind === "first_observed_cgm" ? "first observed CGM" : "user supplied"}. ${state.trendMode === "daily_counts" ? "Bars are detected onsets per source-calendar day; the 7-day trailing average is descriptive and not exposure-adjusted." : "This is not verified automated mode."}`;
-    el.counts.textContent = state.trendMode === "daily_counts" ? `${model.dailyRows.length} calendar days \xB7 ${model.scopeCount - model.qualityExcluded} events counted \xB7 ${model.qualityExcluded} quality-filter exclusions` : `${model.rows.length} plotted / ${model.scopeCount} in scope \xB7 ${model.qualityExcluded} quality-filter exclusions \xB7 ${model.unavailable} unavailable required values${state.selectedEventId && !model.rows.some((row) => row.eventId === state.selectedEventId) ? " \xB7 Selected event is not plotted: required value unavailable or excluded" : ""}`;
-    const hasData = state.trendMode === "daily_counts" ? model.dailyRows.length > 0 : model.rows.length > 0;
+    el.scope.textContent = state.trendMode === "pump_meal_daily_counts" ? `All observed pump reports within CGM observation bounds; origin is ${state.trendOriginKind === "first_observed_cgm" ? "first observed CGM" : "user supplied"}. Counts are independent of event scope and hypoglycemia quality filters. Unknown coverage means zero is only zero observed reports.` : `${state.scope === "all" ? "All events" : state.scope === "eligible" ? "Automated-pump eligible subset" : "Manual-pause affected events"}; origin is ${state.trendOriginKind === "first_observed_cgm" ? "first observed CGM" : "user supplied"}. ${state.trendMode === "daily_counts" ? "Bars are detected onsets per source-calendar day; the 7-day trailing average is descriptive and not exposure-adjusted." : state.trendMode === "combined_daily_counts" ? "" : "This is not verified automated mode."}`;
+    el.counts.textContent = state.trendMode === "pump_meal_daily_counts" ? `${model.dailyRows.length} calendar days \xB7 ${model.scopeCount} observed reports \xB7 ${model.unavailable} unavailable days \xB7 coverage ${model.dailyRows[0]?.availabilityStatus ?? "unavailable"}` : state.trendMode !== "over_time" ? `${model.dailyRows.length} calendar days \xB7 ${model.scopeCount - model.qualityExcluded} events counted \xB7 ${model.qualityExcluded} quality-filter exclusions` : `${model.rows.length} plotted / ${model.scopeCount} in scope \xB7 ${model.qualityExcluded} quality-filter exclusions \xB7 ${model.unavailable} unavailable required values${state.selectedEventId && !model.rows.some((row) => row.eventId === state.selectedEventId) ? " \xB7 Selected event is not plotted: required value unavailable or excluded" : ""}`;
+    if (state.trendMode === "combined_daily_counts") {
+      el.scope.textContent += " Blue bars: pump-reported meals; orange line: detected hypoglycemia onsets. Dashed lines: 7-day trailing averages. Both use the same count axis. Event scope and quality filters affect only hypoglycemia; meals include all observed reports within CGM bounds. Counts are descriptive and not exposure-adjusted; shared patterns do not establish causation.";
+      const mealRows = model.pumpMealDailyRows ?? [];
+      el.counts.textContent += mealRows.some((row) => row.eventCount !== null) ? ` \uFFFD ${mealRows.reduce((sum, row) => sum + (row.eventCount ?? 0), 0)} observed pump reports \uFFFD meal coverage ${mealRows[0]?.availabilityStatus}. Zero means zero observed reports.` : " \uFFFD Pump-report data unavailable: no recognized report source was imported.";
+    }
+    const hasData = state.trendMode !== "over_time" ? model.dailyRows.some((row) => row.eventCount !== null) : model.rows.length > 0;
     el.canvas.classList.toggle("hidden", !hasData);
     el.fallback.classList.toggle("hidden", hasData);
-    el.fallback.textContent = hasData ? "Chart.js is unavailable. Download the plotted rows CSV to inspect the values." : model.scopeCount ? "No events have valid values for this view and filter." : "No events are in the selected scope.";
-    el.download.disabled = !hasData;
+    el.fallback.textContent = hasData ? "Chart.js is unavailable. Download the plotted rows CSV to inspect the values." : state.trendMode === "pump_meal_daily_counts" ? "Pump-report data is unavailable: no recognized report source was imported." : model.scopeCount ? "No events have valid values for this view and filter." : "No events are in the selected scope.";
+    el.download.disabled = state.trendMode === "pump_meal_daily_counts" ? model.dailyRows.length === 0 : !hasData;
     if (hasData) requestAnimationFrame(() => {
       if (generation !== chartRenderGeneration || state.focusPanel !== "trends" || el.root?.classList.contains("hidden")) return;
       const available = trendCharts.render(el.canvas, model, state.selectedEventId, (id) => selectEvent(id, "keep-panel"));
@@ -2302,7 +2787,7 @@ var HypoglycemiaReviewBundle = (() => {
   }
   function downloadTrendRows() {
     const model = currentTrendModel();
-    if (!model || (model.mode === "daily_counts" ? !model.dailyRows.length : !model.rows.length)) return;
+    if (!model || (model.mode !== "over_time" ? !model.dailyRows.length : !model.rows.length)) return;
     const url = URL.createObjectURL(new Blob([exportTrendCsv(model)], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
@@ -2362,6 +2847,11 @@ var HypoglycemiaReviewBundle = (() => {
     if (dailyButton) {
       dailyButton.disabled = state.status !== "success";
       dailyButton.title = "All observed data; event scope does not alter this export.";
+    }
+    const reportButton = document.getElementById("pumpMealReportsDownload");
+    if (reportButton) {
+      reportButton.disabled = state.status !== "success";
+      reportButton.title = "One auditable row per canonical pump-reported meal.";
     }
     overviewSelectionListener?.(state.active && state.status === "success" && selectedEvent && state.dataset ? {
       eventId: selectedEvent.eventId,
@@ -2459,6 +2949,7 @@ var HypoglycemiaReviewBundle = (() => {
     });
     elements.downloadButton.addEventListener("click", downloadDisplayedEvents);
     document.getElementById("hypoDailyDownload")?.addEventListener("click", downloadDailySummaries);
+    document.getElementById("pumpMealReportsDownload")?.addEventListener("click", downloadPumpMealReports);
     elements.previousButton.addEventListener("click", () => navigateSelection(-1));
     elements.nextButton.addEventListener("click", () => navigateSelection(1));
     elements.semantics.addEventListener("change", () => {
