@@ -58,6 +58,12 @@
     if (records.length === 0) {
       throw new Error("CSV is empty.");
     }
+    if (records.every((row) => row.length === 1)) {
+      const innerHeaders = records[0][0].split(",").map((header) => header.trim().toLowerCase());
+      if (["series", "datetime_local", "value"].every((header) => innerHeaders.includes(header))) {
+        return parseCsv(records.map((row) => row[0]).join("\r\n"));
+      }
+    }
     const headers = records.shift().map((header) => header.trim());
     if (headers.some((header) => header === "")) {
       throw new Error("CSV contains an empty column name.");
