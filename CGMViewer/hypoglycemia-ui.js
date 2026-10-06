@@ -865,7 +865,7 @@ var HypoglycemiaReviewBundle = (() => {
   }
   function duplicateAcrossSources(left, right) {
     if (left.record.sourceFileIndex === right.record.sourceFileIndex) return false;
-    if (left.pointIdentity && right.pointIdentity && left.pointIdentity === right.pointIdentity) return true;
+    if (left.pointIdentity && left.pointIdentity === right.pointIdentity && left.record.time === right.record.time && (left.record.reportedTime === null || right.record.reportedTime === null || left.record.reportedTime === right.record.reportedTime)) return true;
     if (!compatibleType(left, right)) return false;
     if (left.record.reportedTime !== null && right.record.reportedTime !== null)
       return left.record.reportedTime === right.record.reportedTime;
